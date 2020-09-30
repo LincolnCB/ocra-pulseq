@@ -6,4 +6,4 @@ Pulseq interpreter for OCRA
 
 After initializing, run `PSAssembler.assemble("[filepath]")` to return a list of:
 
-`[tx_bytes, [gx_bytes, gy_bytes, gz_bytes], command_bytes`
+`[tx_bytes, [gx_bytes, gy_bytes, gz_bytes], command_bytes]`
