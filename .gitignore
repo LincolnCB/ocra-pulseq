@@ -1,3 +1,4 @@
 __pycache__/
 *.log
 LOCAL/
+.DS_Store

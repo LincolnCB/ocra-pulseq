@@ -1,7 +1,10 @@
+# -*- coding: utf-8 -*-
 # pulseq_assembler.py
-# TODO: go over timing and timing issues
+# Written by Lincoln Craven-Brightman, based on code by Suma Anand
+
+# TODO: go over timing and timing issues one last time
 # TODO: Docstrings
-# TODO: RASTCSYNC
+# TODO: RASTCSYNC, LITR
 
 import pdb # Debugging
 import numpy as np
@@ -10,30 +13,46 @@ import logging # For errors
 import struct
 
 class PSAssembler:
+    """
+    Assembler object that can assemble a PulSeq file into OCRA machine code. Run PSAssembler.assemble to compile a .seq file into OCRA machine code
+
+    Attributes:
+        tx_bytes (bytes): Transmit data bytes
+        grad_bytes (list): List of grad bytes
+        command_bytes (bytes): Command bytes
+    """
 
     def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+6,
                  clk_t=0.1, tx_t=0.1, grad_t=1,
                  pulseq_t_match=True, ps_tx_t=0.1, ps_grad_t=1):
-        '''
-        rf_center: Hz
-        rf_amp_max: Hz
-        grad_max: Hz/m
-        clt/tx/grad_t: us
-        '''
+        """
+        Create PSAssembler object with system parameters.
+
+        Args:
+            rf_center (int): RF center (local oscillator frequency) in Hz
+            rf_amp_max (int): RF amplitude max in Hz
+            grad_max (int): Gradient max in Hz
+            clk_t (float): Clock period in us
+            tx_t (float): Transmit raster period in us
+            grad_t (float): Gradient raster period in us
+            pulseq_t_match (bool): Set to False if PulSeq file transmit and gradient raster times do not match OCRA transmit and raster times.
+            ps_tx_t (float): PulSeq transmit raster period in us, if pulseq_t_match is False
+            ps_grad_t (float): PulSeq gradient raster period in us, if pulseq_t_match is False
+        """
         # Logging
-        self.logger = logging.getLogger()
-        logging.basicConfig(filename = 'assembler.log', filemode = 'w', level = logging.DEBUG)
+        self._logger = logging.getLogger()
+        logging.basicConfig(filename = 'psassembler.log', filemode = 'w', level = logging.DEBUG)
 
         # PulSeq dictionary storage
-        self.blocks = {}
-        self.rf_events = {}
-        self.grad_events = {}
-        self.adc_events = {}
-        self.delay_events = {}
-        self.shapes = {}
+        self._blocks = {}
+        self._rf_events = {}
+        self._grad_events = {}
+        self._adc_events = {}
+        self._delay_events = {}
+        self._shapes = {}
 
         # Interpreter for section names in .seq file
-        self.pulseq_keys = {
+        self._pulseq_keys = {
             '[VERSION]' : self._read_temp, # Unused
             '[DEFINITIONS]' : self._read_temp, # Unused
             '[BLOCKS]' : self._read_blocks,
@@ -46,39 +65,39 @@ class PSAssembler:
             '[SHAPES]' : self._read_shapes
         }
 
-        self.clk_t = clk_t # Instruction clock period in us
-        self.tx_div = int(tx_t / self.clk_t) # Clock cycles per tx
-        self._error_if(self.tx_div * self.clk_t != tx_t, f'tx_t ({tx_t}) is not a multiple of clk_t ({clk_t})')
-        self.tx_t = tx_t # Transmit sample period in us
-        self.grad_div = int(grad_t / self.clk_t) # Clock cycles per grad
-        self._error_if(self.grad_div * self.clk_t != grad_t, f'grad_t ({(grad_t)}) is not a multiple of clk_t ({clk_t})')
-        self.grad_t = grad_t # Gradient sample period in us
-        self.rx_div = None
-        self.rx_t = None
+        self._clk_t = clk_t # Instruction clock period in us
+        self._tx_div = int(tx_t / self._clk_t) # Clock cycles per tx
+        self._error_if(self._tx_div * self._clk_t != tx_t, f'tx_t ({tx_t}) is not a multiple of clk_t ({clk_t})')
+        self._tx_t = tx_t # Transmit sample period in us
+        self._grad_div = int(grad_t / self._clk_t) # Clock cycles per grad
+        self._error_if(self._grad_div * self._clk_t != grad_t, f'grad_t ({(grad_t)}) is not a multiple of clk_t ({clk_t})')
+        self._grad_t = grad_t # Gradient sample period in us
+        self._rx_div = None
+        self._rx_t = None
 
         if not pulseq_t_match:
-            self.ps_tx_t = ps_tx_t # us
-            self.ps_grad_t = ps_grad_t # us
+            self._ps_tx_t = ps_tx_t # us
+            self._ps_grad_t = ps_grad_t # us
         else:
-            self.ps_tx_t = tx_t # us
-            self.ps_grad_t = grad_t # us
+            self._ps_tx_t = tx_t # us
+            self._ps_grad_t = grad_t # us
 
-        self.rf_center = rf_center # Hz
-        self.rf_amp_max = rf_amp_max # Hz
-        self.grad_max = grad_max # Hz/m
+        self._rf_center = rf_center # Hz
+        self._rf_amp_max = rf_amp_max # Hz
+        self._grad_max = grad_max # Hz/m
 
-        self.tx_offsets = {} # Tx word index (32-bit) by Tx ID
-        self.tx_delays = {} # us
-        self.tx_durations = {} # us
-        self.grad_offsets = {} # Gradient word index (3 concurrent 32-bit) by Gx, Gy, Gz ID combo
-        self.grad_delays = {} # us
-        self.grad_durations = {} # us
+        self._tx_offsets = {} # Tx word index (32-bit) by Tx ID
+        self._tx_delays = {} # us
+        self._tx_durations = {} # us
+        self._grad_offsets = {} # Gradient word index (3 concurrent 32-bit) by Gx, Gy, Gz ID combo
+        self._grad_delays = {} # us
+        self._grad_durations = {} # us
 
         self.tx_bytes = bytes()
         self.grad_bytes = [bytes(), bytes(), bytes()] # x, y, z
         self.command_bytes = bytes()
 
-        self.opcode_table = {
+        self._opcode_table = {
 			'NOP' :     '000000',
             'HALT' :    '011001',
 			'DEC' :     '000001',   # A
@@ -92,61 +111,151 @@ class PSAssembler:
             'LITR' :        '000011', # B
             'RASTCSYNC' :   '000101', # C
 		}
-        self.bit_table = {
+        self._bit_table = {
             'TX_PULSE':   int('0b00000001', 2),
             'RX_PULSE':   int('0b00000010', 2), # NOTE: Inverted logic
             'GRAD_PULSE': int('0b00000100', 2),
 			'TX_GATE':    int('0b00010000', 2),
 			'RX_GATE':    int('0b00100000', 2)
 		}
-        self.reg_nums = {}
+        self._reg_nums = {}
 
     # Wrapper for full assembly
     def assemble(self, pulseq_file):
+        """
+        Assemble OCRA machine code from PulSeq .seq file
+
+        Args:
+            pulseq_file (str): PulSeq file to assemble from
+        
+        Returns:
+            list: Transmit bytes (bytes); list of gradient bytes (list) (bytes); command bytes (bytes)
+        """
         self._read_pulseq(pulseq_file)
         self._compile_tx_data()
         self._compile_grad_data()
         self._compile_instructions()
+        return (self.tx_bytes, self.grad_bytes, self.command_bytes)
+
+    # Open file and read in all sections into class storage
+    def _read_pulseq(self, pulseq_file):
+        """
+        Read PulSeq file into object dict memory
+
+        Args:
+            pulseq_file (str): PulSeq file to assemble from
+        """
+        # Open file
+        with open(pulseq_file) as f:
+            self._logger.info('Opening PulSeq file...')
+            line = '\n'
+            next_line = ''
+
+            while True:
+                if not next_line: 
+                    line = f.readline()
+                else: 
+                    line = next_line
+                    next_line = ''
+                if line == '': break
+                key = self._simplify(line)
+                if key in self._pulseq_keys:
+                    next_line = self._pulseq_keys[key](f)
+
+        # Check that all ids are valid
+        self._logger.info('Validating ids...')
+        var_names = ('delay', 'rf', 'gx', 'gy', 'gz', 'adc', 'ext')
+        var_dicts = [self._delay_events, self._rf_events, self._grad_events, self._grad_events, self._grad_events, self._adc_events, {}]
+        for block in self._blocks.values():
+            for i in range(len(var_names)):
+                id_n = block[var_names[i]]
+                self._error_if(id_n != 0 and id_n not in var_dicts[i], f'Invalid {var_names[i]} id: {id_n}')
+        for rf in self._rf_events.values():
+            self._error_if(rf['mag_id'] not in self._shapes, f'Invalid magnitude shape id: {rf["mag_id"]}')
+            self._error_if(rf['phase_id'] not in self._shapes, f'Invalid phase shape id: {rf["phase_id"]}')
+        for grad in self._grad_events.values():
+            if len(grad) == 3:
+                self._error_if(grad['shape_id'] not in self._shapes, f'Invalid grad shape id: {grad["shape_id"]}')
+        self._logger.info('Valid ids')
+
+        # TODO: Check that all delays are multiples of clk_t
+        
+        # Check that RF/ADC (TX/RX) only have one frequency offset -- can't be set within one file.
+        freq = None
+        base_id = None
+        base_str = None
+        for rf_id, rf in self._rf_events.items():
+            if freq is None:
+                freq = rf['freq']
+                base_id = rf_id
+                base_str = 'RF'
+            self._error_if(rf['freq'] != freq, f"Frequency offset of RF event {rf_id} ({rf['freq']}) doesn't match that of {base_str} event {base_id} ({freq})")
+        for adc_id, adc in self._adc_events.items():
+            if freq is None:
+                freq = adc['freq']
+                base_id = adc_id
+                base_str = 'ADC'
+            self._error_if(adc['freq'] != freq, f"Frequency offset of ADC event {adc_id} ({adc['freq']}) doesn't match that of {base_str} event {base_id} ({freq})")
+        if freq is not None and freq != 0:
+            self._rf_center += freq
+            self._logger.info(f'Adding freq offset {freq} Hz. New center / linear oscillator frequency: {self._rf_center}')
+
+        # Check that ADC has constant dwell time
+        dwell = None
+        for adc_id, adc in self._adc_events.items():
+            if dwell is None:
+                dwell = adc['dwell']
+                base_id = adc_id
+            self._error_if(adc['dwell'] != dwell, f"Dwell time of ADC event {adc_id} ({adc['dwell']}) doesn't match that of ADC event {base_id} ({dwell})")
+        if dwell is not None:
+            self._rx_div = int(dwell / self._clk_t)
+            self._error_if(self._rx_div * self._clk_t != dwell, 'ADC dwell time is not a multiple of clk_t')
+            self._rx_t = dwell
+        
+        self._logger.info('PulSeq file loaded')
         
     # TODO Confirm this is accurate
     # Compile tx events into bytes
     def _compile_tx_data(self):
+        """
+        Compile transmit data from object dict memory into bytes
+        """
 
-        self.logger.info('Compiling Tx data...')
+        self._logger.info('Compiling Tx data...')
         tx_data = []
         curr_offset = 0
 
         # Process each rf event
-        for tx_id, tx in self.rf_events.items():
+        for tx_id, tx in self._rf_events.items():
             # Collect mag/phase shapes
-            mag_shape = self.shapes[tx['mag_id']]
-            phase_shape = self.shapes[tx['phase_id']]
+            mag_shape = self._shapes[tx['mag_id']]
+            phase_shape = self._shapes[tx['phase_id']]
             if len(mag_shape) != len(phase_shape):
-                self.logger.warning(f'Tx envelope of RF event {tx_id} has mismatched magnitude and phase information,'
+                self._logger.warning(f'Tx envelope of RF event {tx_id} has mismatched magnitude and phase information,'
                                     ' the last entry of the shorter will be extended')
 
             # Array length, unitless -- extends shorter of phase/mag shape to length of longer                     
-            pulse_len = int((max(len(mag_shape), len(phase_shape)) - 1) * self.ps_tx_t / self.tx_t) + 1 # unitless
+            pulse_len = int((max(len(mag_shape), len(phase_shape)) - 1) * self._ps_tx_t / self._tx_t) + 1 # unitless
             
             # Interpolate values (and extend past end of shorter, if needed)
-            x = np.linspace(0, (pulse_len - 1) * self.tx_t, num=pulse_len) # us
-            mag_interp = np.interp(x, np.linspace(0, (len(mag_shape) - 1) * self.ps_tx_t, num=len(mag_shape)), mag_shape) * tx['amp'] / self.rf_amp_max
-            phase_interp = np.interp(x, np.linspace(0, (len(phase_shape) - 1) * self.ps_tx_t, num=len(phase_shape)), phase_shape) * 2 * np.pi
+            x = np.linspace(0, (pulse_len - 1) * self._tx_t, num=pulse_len) # us
+            mag_interp = np.interp(x, np.linspace(0, (len(mag_shape) - 1) * self._ps_tx_t, num=len(mag_shape)), mag_shape) * tx['amp'] / self._rf_amp_max
+            phase_interp = np.interp(x, np.linspace(0, (len(phase_shape) - 1) * self._ps_tx_t, num=len(phase_shape)), phase_shape) * 2 * np.pi
 
             # Convert to complex tx envelope
             tx_env = np.exp((phase_interp + tx['phase']) * 1j) * mag_interp
             if np.any(np.abs(tx_env) > 1.0):
-                self.logger.warning(f'Magnitude of RF event {tx_id} was too large, 16-bit signed overflow will occur')
+                self._logger.warning(f'Magnitude of RF event {tx_id} was too large, 16-bit signed overflow will occur')
             
             # Concatenate tx data and track offsets
             tx_data.extend(tx_env.tolist())
-            self.tx_offsets[tx_id] = curr_offset
-            self.tx_durations[tx_id] = pulse_len * self.tx_t
-            self.tx_delays[tx_id] = tx['delay']
+            self._tx_offsets[tx_id] = curr_offset
+            self._tx_durations[tx_id] = pulse_len * self._tx_t
+            self._tx_delays[tx_id] = tx['delay']
             curr_offset += pulse_len
 
         # Compile as bytes (16 bits for real and imaginary)
-        self.logger.info('Converting to bytes...')
+        self._logger.info('Converting to bytes...')
         tx_arr = np.array(tx_data)
         temp_bytearray = bytearray(4 * tx_arr.size)
 
@@ -159,61 +268,64 @@ class PSAssembler:
         temp_bytearray[3::4] = (tx_q >> 8).astype(np.uint8).tobytes()
 
         self.tx_bytes = bytes(temp_bytearray)
-        self.logger.info('Tx data compiled')
+        self._logger.info('Tx data compiled')
 
     # TODO Confirm this is accurate
     # Compile grad events into bytes
     def _compile_grad_data(self):
+        """
+        Compile gradient events from object dict memory into bytes
+        """
         # Prep grad data
         self._create_helper_shapes()
 
-        self.logger.info('Compiling gradient data...')
+        self._logger.info('Compiling gradient data...')
         grad_data = [[], [], []]
         curr_offset = 0
 
         # Process each block (all gradients play out at once, so different xyz combinations are distinct)
-        for block in self.blocks.values():
+        for block in self._blocks.values():
             grad_ids = (block['gx'], block['gy'], block['gz'])
 
             # Skip if all off or a repeat combination
             if grad_ids[0] == 0 and grad_ids[1] == 0 and grad_ids[2] == 0: continue
-            if (grad_ids) in self.grad_offsets: continue
+            if (grad_ids) in self._grad_offsets: continue
 
             # Collect grad events and shapes
-            grads = [self.grad_events[grad_ids[i]] for i in range(3)]
-            grad_shapes = [self.shapes[grads[i]['shape_id']] for i in range(3)]
+            grads = [self._grad_events[grad_ids[i]] for i in range(3)]
+            grad_shapes = [self._shapes[grads[i]['shape_id']] for i in range(3)]
 
             # Remove time when all are off
             grad_delays = [grad['delay'] for grad in grads]
             min_delay = min(grad_delays)
-            grad_delay_lens = [int((delay - min_delay) / self.ps_grad_t) if delay != math.inf else 0 for delay in grad_delays]
+            grad_delay_lens = [int((delay - min_delay) / self._ps_grad_t) if delay != math.inf else 0 for delay in grad_delays]
 
             # Array lengths (unitless)
             grad_ps_len = max([len(grad_shapes[i]) + grad_delay_lens[i] for i in range(3)])
-            grad_len = int(grad_ps_len * self.ps_grad_t / self.grad_t)
+            grad_len = int(grad_ps_len * self._ps_grad_t / self._grad_t)
 
             # Leading edge time arrays for interpolation
-            x_ps = np.linspace(0, (grad_ps_len - 1) * self.ps_grad_t, num=grad_ps_len)
-            x = np.linspace(0, (grad_len - 1) * self.ps_grad_t, num=grad_len)
+            x_ps = np.linspace(0, (grad_ps_len - 1) * self._ps_grad_t, num=grad_ps_len)
+            x = np.linspace(0, (grad_len - 1) * self._ps_grad_t, num=grad_len)
             
             # Interpolate, scale, and concatenate grad data
             for i in range(3): 
                 grad_ps = np.zeros(grad_ps_len)
                 grad_ps[grad_delay_lens[i] : grad_delay_lens[i] + len(grad_shapes[i])] = np.array(grad_shapes[i])
-                gr = np.interp(x, x_ps, grads[i]['amp'] * grad_ps) / self.grad_max
+                gr = np.interp(x, x_ps, grads[i]['amp'] * grad_ps) / self._grad_max
 
                 grad_data[i].extend(gr.tolist())
                 if np.any(np.abs(gr) > 1.0):
-                    self.logger.warning(f'Magnitude of gradient event {grad_ids[i]} was too large, 16-bit signed overflow will occur')
+                    self._logger.warning(f'Magnitude of gradient event {grad_ids[i]} was too large, 16-bit signed overflow will occur')
 
             # Track offsets for concatenated grad events
-            self.grad_offsets[grad_ids] = curr_offset
-            self.grad_durations[grad_ids] = grad_len * self.grad_t
-            self.grad_delays[grad_ids] = min_delay
+            self._grad_offsets[grad_ids] = curr_offset
+            self._grad_durations[grad_ids] = grad_len * self._grad_t
+            self._grad_delays[grad_ids] = min_delay
             curr_offset += grad_len
                 
         # Convert full data array to bytes
-        self.logger.info('Converting to bytes...')
+        self._logger.info('Converting to bytes...')
         for i in range(3):
             temp_bytearray = bytearray(4 * curr_offset) # 32 bits per entry per channel
 
@@ -226,46 +338,50 @@ class PSAssembler:
             temp_bytearray[3::4] = np.zeros(gr.size, dtype=np.uint8).tobytes() 
 
             self.grad_bytes[i] = bytes(temp_bytearray)
-        self.logger.info('Gradient data compiled')
+        self._logger.info('Gradient data compiled')
 
     # Create shapes to convert trapezoids into the same format as gradients, and add a zero shape for when not all of X, Y, Z are on at once. 
     def _create_helper_shapes(self):
-
-        self.logger.info('Processing trapezoids...')
+        """
+        Creates rastered shapes for trapezoid events for encoding into gradient bytes, and creates a zero shape for when not all of X, Y, Z are on at once.
+        """
+        self._logger.info('Processing trapezoids...')
         # Append helper shapes on top of existing shapes
         max_id = 0
-        for shape_id in self.shapes:
+        for shape_id in self._shapes:
             if shape_id > max_id: max_id = shape_id
 
         # Append zero shape first
         max_id += 1
-        self.grad_events[0] = {'amp': 0, 'shape_id': max_id, 'delay': math.inf}
-        self.shapes[max_id] = np.zeros(0)
+        self._grad_events[0] = {'amp': 0, 'shape_id': max_id, 'delay': math.inf}
+        self._shapes[max_id] = np.zeros(0)
         
         # Create and append new trap shapes, and convert trap into standard grad events
-        for grad_id, grad in self.grad_events.items():
+        for grad_id, grad in self._grad_events.items():
             if len(grad) == 5:
-                rise = np.flip(np.linspace(1, 0, num=int(grad['rise'] / self.ps_grad_t), endpoint=False))
-                flat = np.ones(int(grad['flat'] / self.ps_grad_t))
-                fall = np.flip(np.linspace(0, 1, num=int(grad['fall'] / self.ps_grad_t), endpoint=False))
+                rise = np.flip(np.linspace(1, 0, num=int(grad['rise'] / self._ps_grad_t), endpoint=False))
+                flat = np.ones(int(grad['flat'] / self._ps_grad_t))
+                fall = np.flip(np.linspace(0, 1, num=int(grad['fall'] / self._ps_grad_t), endpoint=False))
                 shape = np.concatenate((rise, flat, fall))
                 
                 max_id += 1
-                self.shapes[max_id] = shape
-                self.grad_events[grad_id] = {'amp': grad['amp'], 'shape_id': max_id, 'delay': grad['delay']}
-        self.logger.info('Trapezoids processed')
+                self._shapes[max_id] = shape
+                self._grad_events[grad_id] = {'amp': grad['amp'], 'shape_id': max_id, 'delay': grad['delay']}
+        self._logger.info('Trapezoids processed')
         return
 
     # Compile all instructions into self.command_bytes
     def _compile_instructions(self):
-
-        self.logger.info('Compiling instructions...')
+        """
+        Compiles event blocks into instruction bytes
+        """
+        self._logger.info('Compiling instructions...')
         # Encode all blocks
         PR_durations = []
         PR_gates = []
         TX_offsets = []
         GRAD_offsets = []
-        for block_id in self.blocks.keys():
+        for block_id in self._blocks.keys():
             temp = self._encode_block(block_id)
             PR_durations.extend(temp[0])
             PR_gates.extend(temp[1])
@@ -273,21 +389,21 @@ class PSAssembler:
             GRAD_offsets.extend(temp[3])
         
         # Set up gate variables
-        self.logger.info('Storing gate variables...')
+        self._logger.info('Storing gate variables...')
         gates = list(set(PR_gates))
-        rn = 3 # registers 1 and 2 reserved
+        rn = 3 # registers 1 and 2 reserved, register 0 unused for nice alignment
         for gate in gates:
-            self.reg_nums[gate] = rn
+            self._reg_nums[gate] = rn
             rn += 1
-        PR_registers = [self.reg_nums[gate] for gate in PR_gates]
-        PR_clk_delays = [int(duration / self.clk_t) for duration in PR_durations]
+        PR_registers = [self._reg_nums[gate] for gate in PR_gates]
+        PR_clk_delays = [int(duration / self._clk_t) for duration in PR_durations]
         
 
         # Fill out command lines
         cmds = []
         n_vars = len(gates)
 
-        # Jump to proper address
+        # Line 0: Jump past variable storage
         cmds.append(self._format_A('J', 0, n_vars + 3))
         # Fill out lines 1 and 2 for consistency
         cmds.append(format(0, 'b').zfill(64)) # 1
@@ -298,9 +414,9 @@ class PSAssembler:
             cmds.append(format(gate, 'b').zfill(64))
 
         # Load registers (including loop var)
-        for rn in range(2, n_vars + 3):
+        for rn in range(3, n_vars + 3):
             cmds.append(self._format_A('LD64', rn, rn))
-        self.logger.info('Gate variables stored')
+        self._logger.info('Gate variables stored')
 
         # Write instructions
         for i in range(len(PR_clk_delays)):
@@ -310,9 +426,9 @@ class PSAssembler:
         
         # Halt
         cmds.append(self._format_A('HALT', 0, 0))
-        self.logger.info('Writing commands...')
+        self._logger.info('Writing commands...')
 
-        self.logger.info('Converting to bytes...')
+        self._logger.info('Converting to bytes...')
         # Reduce 64 bit words into 32 bit words (reorder to keep continuity for little-endian packing)
         cmd_32_ints = []
         for cmd in cmds:
@@ -323,33 +439,21 @@ class PSAssembler:
         
         # Pack 32-bit words in little-endian
         self.command_bytes = bytes().join([struct.pack('<I', cmd_32_int) for cmd_32_int in cmd_32_ints])
-        self.logger.info('Commands compiled')
-
-    # Command byte formats (A, B, C)
-    def _format_A(self, opcode, rx, arg):
-        opcode_bin = self.opcode_table[opcode]
-        reg_bin = format(rx, 'b').zfill(5)
-        arg_bin = format(arg, 'b').zfill(32)
-        remaining_bits = 64 - len(opcode_bin) - len(reg_bin) - len(arg_bin) # Remaining bits
-        remainder = '0'.zfill(remaining_bits) 
-        return opcode_bin + remainder + reg_bin + arg_bin
-    def _format_B(self, opcode, rx, arg):
-        opcode_bin = self.opcode_table[opcode]
-        reg_bin = format(rx, 'b').zfill(5)
-        arg_bin = format(arg, 'b').zfill(40)
-        remaining_bits = 64 - len(opcode_bin) - len(reg_bin) - len(arg_bin) # Remaining bits
-        remainder = '0'.zfill(remaining_bits) 
-        return opcode_bin + remainder + reg_bin + arg_bin
-    def _format_C(self, opcode, arg):
-        opcode_bin = self.opcode_table[opcode]
-        arg_bin = format(arg, 'b').zfill(40)
-        remaining_bits = 64 - len(opcode_bin) - len(arg_bin) # Remaining bits
-        remainder = '0'.zfill(remaining_bits) 
-        return opcode_bin + remainder + arg_bin
+        self._logger.info('Commands compiled')
 
     # Convert individual block into PR commands (duration, gates), TX offset, and GRAD offset
     def _encode_block(self, block_id):
-        block = self.blocks[block_id]
+        """
+        Encode block into sequential gate changes to be compiled into byte instructions
+
+        Args:
+            block_id (int): Block id key for block in object dict memory to be encoded
+        
+        Returns:
+            tuple: PR durations (list) (int); transmit address changes for each PR, -1 if no change (np.ndarray);
+                gradient address changes for each time, -1 if no change (np.ndarray)
+        """
+        block = self._blocks[block_id]
         
         # Determine important times in us (when gates change)
         delay = block['delay']
@@ -358,13 +462,13 @@ class PSAssembler:
         grad_ids = (block['gx'], block['gy'], block['gz'])
         adc_id = block['adc']
         if rf_id != 0: # rf timing
-            tx_start = self.tx_delays[rf_id]
-            tx_end = self.tx_durations[rf_id] + tx_start
+            tx_start = self._tx_delays[rf_id]
+            tx_end = self._tx_durations[rf_id] + tx_start
         if grad_ids != (0, 0, 0): # grad timing
-            grad_start = self.grad_delays[grad_ids]
-            grad_end = self.grad_durations[grad_ids] + grad_start
+            grad_start = self._grad_delays[grad_ids]
+            grad_end = self._grad_durations[grad_ids] + grad_start
         if adc_id:
-            adc = self.adc_events[adc_id]
+            adc = self._adc_events[adc_id]
             rx_start = adc['delay']
             rx_end = adc['dwell'] * adc['num']
 
@@ -380,11 +484,11 @@ class PSAssembler:
         for i in range(times.size):
             time = times[i]
             if time >= tx_start and time < tx_end:
-                gates[i] = gates[i] | self.bit_table['TX_GATE'] | self.bit_table['TX_PULSE']
+                gates[i] = gates[i] | self._bit_table['TX_GATE'] | self._bit_table['TX_PULSE']
             if time >= grad_start and time < grad_end:
-                gates[i] = gates[i] | self.bit_table['GRAD_PULSE']
+                gates[i] = gates[i] | self._bit_table['GRAD_PULSE']
             if time < rx_start or time >= rx_end:
-                gates[i] = gates[i] | self.bit_table['RX_PULSE']
+                gates[i] = gates[i] | self._bit_table['RX_PULSE']
 
         # Set offsets for each time (leading edge)
         tx_addr = np.zeros(times.size, dtype=np.int) - 1
@@ -392,233 +496,286 @@ class PSAssembler:
         for i in range(times.size):
             time = times[i]
             if time == tx_start and time != tx_end and rf_id != 0:
-                tx_addr[i] = self.tx_offsets[rf_id]
+                tx_addr[i] = self._tx_offsets[rf_id]
             if time == grad_start and time != grad_end and grad_ids != (0, 0, 0):
-                grad_addr[i] = self.grad_offsets[grad_ids]
+                grad_addr[i] = self._grad_offsets[grad_ids]
 
         # Convert absolute times to durations
         PR_durations = [times[i] - times[i-1] for i in range(1, times.size)]
 
         # Return durations for each PR and leading edge values
-        return [PR_durations, gates[:-1], tx_addr[:-1], grad_addr[:-1]]
-    
-    # Open file and read in all sections into class storage
-    def _read_pulseq(self, pulseq_file):
-        # Open file
-        with open(pulseq_file) as f:
-            self.logger.info('Opening PulSeq file...')
-            line = '\n'
-            next_line = ''
+        return (PR_durations, gates[:-1], tx_addr[:-1], grad_addr[:-1])
+           
+    # Command byte formats (A, B, C)
+    def _format_A(self, op, rx, addr):
+        """
+        Write command bytes in format A: 6 bits opcode, filler bits, 5 bits register, 32 bits address
 
-            while True:
-                if not next_line: 
-                    line = f.readline()
-                else: 
-                    line = next_line
-                    next_line = ''
-                if line == '': break
-                key = self._simplify(line)
-                if key in self.pulseq_keys:
-                    next_line = self.pulseq_keys[key](f)
-
-        # Check that all ids are valid
-        self.logger.info('Validating ids...')
-        var_names = ('delay', 'rf', 'gx', 'gy', 'gz', 'adc', 'ext')
-        var_dicts = [self.delay_events, self.rf_events, self.grad_events, self.grad_events, self.grad_events, self.adc_events, {}]
-        for block in self.blocks.values():
-            for i in range(len(var_names)):
-                id_n = block[var_names[i]]
-                self._error_if(id_n != 0 and id_n not in var_dicts[i], f'Invalid {var_names[i]} id: {id_n}')
-        for rf in self.rf_events.values():
-            self._error_if(rf['mag_id'] not in self.shapes, f'Invalid magnitude shape id: {rf["mag_id"]}')
-            self._error_if(rf['phase_id'] not in self.shapes, f'Invalid phase shape id: {rf["phase_id"]}')
-        for grad in self.grad_events.values():
-            if len(grad) == 3:
-                self._error_if(grad['shape_id'] not in self.shapes, f'Invalid grad shape id: {grad["shape_id"]}')
-        self.logger.info('Valid ids')
-
-        # TODO: Check that all delays are multiples of clk_t
+        Args:
+            op (str): Operation to be done (key for object opcode dictionary)
+            rx (int): Register
+            addr (int): Address (word/line number) in instruction bytes
         
-        # Check that RF/ADC (TX/RX) only have one frequency offset -- can't be set within one file.
-        freq = None
-        base_id = None
-        base_str = None
-        for rf_id, rf in self.rf_events.items():
-            if freq is None:
-                freq = rf['freq']
-                base_id = rf_id
-                base_str = 'RF'
-            self._error_if(rf['freq'] != freq, f"Frequency offset of RF event {rf_id} ({rf['freq']}) doesn't match that of {base_str} event {base_id} ({freq})")
-        for adc_id, adc in self.adc_events.items():
-            if freq is None:
-                freq = adc['freq']
-                base_id = adc_id
-                base_str = 'ADC'
-            self._error_if(adc['freq'] != freq, f"Frequency offset of ADC event {adc_id} ({adc['freq']}) doesn't match that of {base_str} event {base_id} ({freq})")
-        if freq is not None and freq != 0:
-            self.rf_center += freq
-            self.logger.info(f'Adding freq offset {freq} Hz. New center / linear oscillator frequency: {self.rf_center}')
+        Returns:
+            str: Binary string of full word/line
+        """
+        opcode_bin = self._opcode_table[op]
+        reg_bin = format(rx, 'b').zfill(5)
+        addr_bin = format(addr, 'b').zfill(32)
+        remaining_bits = 64 - len(opcode_bin) - len(reg_bin) - len(addr_bin) # Remaining bits
+        remainder = '0'.zfill(remaining_bits) 
+        return opcode_bin + remainder + reg_bin + addr_bin
+    def _format_B(self, op, rx, arg):
+        """
+        Write command bytes in format B: 6 bits opcode, filler bits, 5 bits register, 40 bits argument
 
-        # Check that ADC has constant dwell time
-        dwell = None
-        for adc_id, adc in self.adc_events.items():
-            if dwell is None:
-                dwell = adc['dwell']
-                base_id = adc_id
-            self._error_if(adc['dwell'] != dwell, f"Dwell time of ADC event {adc_id} ({adc['dwell']}) doesn't match that of ADC event {base_id} ({dwell})")
-        if dwell is not None:
-            self.rx_div = int(dwell / self.clk_t)
-            self._error_if(self.rx_div * self.clk_t != dwell, 'ADC dwell time is not a multiple of clk_t')
-            self.rx_t = dwell
+        Args:
+            op (str): Operation to be done (key for object opcode dictionary)
+            rx (int): Register
+            arg (int): Argument for operation
         
-        self.logger.info('PulSeq file loaded')
-            
+        Returns:
+            str: Binary string of full word/line
+        """
+        opcode_bin = self._opcode_table[op]
+        reg_bin = format(rx, 'b').zfill(5)
+        arg_bin = format(arg, 'b').zfill(40)
+        remaining_bits = 64 - len(opcode_bin) - len(reg_bin) - len(arg_bin) # Remaining bits
+        remainder = '0'.zfill(remaining_bits) 
+        return opcode_bin + remainder + reg_bin + arg_bin
+    def _format_C(self, opcode, arg):
+        """
+        Write command bytes in format C: 6 bits opcode, filler bits, 40 bits argument
+
+        Args:
+            op (str): Operation to be done (key for object opcode dictionary)
+            arg (int): Argument for operation
+        
+        Returns:
+            str: Binary string of full word/line
+        """
+        opcode_bin = self._opcode_table[opcode]
+        arg_bin = format(arg, 'b').zfill(40)
+        remaining_bits = 64 - len(opcode_bin) - len(arg_bin) # Remaining bits
+        remainder = '0'.zfill(remaining_bits) 
+        return opcode_bin + remainder + arg_bin
+
     # [BLOCKS] <id> <delay> <rf> <gx> <gy> <gz> <adc> <ext>
     def _read_blocks(self, f):
+        """
+        Read BLOCKS (event block) section in PulSeq file f to object dict memory.
+        Event blocks are formatted like: <id> <delay> <rf> <gx> <gy> <gz> <adc> <ext>
+
+        Args:
+            f (_io.TextIOWrapper): File pointer to read from
+
+        Returns:
+            str: Raw next line in file after section ends
+        """
         var_names = ('delay', 'rf', 'gx', 'gy', 'gz', 'adc', 'ext')
         rline = ''
         line = ''
-        self.logger.info('Blocks: Reading...')
+        self._logger.info('Blocks: Reading...')
         while True:
             line = f.readline()
             rline = self._simplify(line)
-            if line == '' or rline in self.pulseq_keys: break
+            if line == '' or rline in self._pulseq_keys: break
 
             tmp = rline.split()
             if len(tmp) == 8: # <id> <delay> <rf> <gx> <gy> <gz> <adc> <ext>
                 data_line = [int(x) for x in tmp]
-                self.blocks[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
+                self._blocks[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
             elif len(tmp) == 7: # Spec allows extension ID not included, add it in as 0
                 data_line = [int(x) for x in tmp]
                 data_line.append(0)
-                self.blocks[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
+                self._blocks[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
         
-        if len(self.blocks) == 0: self.logger.error('Zero blocks read, nonzero blocks needed')
-        assert len(self.blocks) > 0, 'Zero blocks read, nonzero blocks needed'
-        self.logger.info('Blocks: Complete')
+        if len(self._blocks) == 0: self._logger.error('Zero blocks read, nonzero blocks needed')
+        assert len(self._blocks) > 0, 'Zero blocks read, nonzero blocks needed'
+        self._logger.info('Blocks: Complete')
 
         return rline
 
     # [RF] <id> <amp> <mag_id> <phase_id> <delay> <freq> <phase>
     def _read_rf_events(self, f):
+        """
+        Read RF (RF event) section in PulSeq file f to object dict memory.
+        RF events are formatted like: <id> <amp> <mag_id> <phase_id> <delay> <freq> <phase>
+
+        Args:
+            f (_io.TextIOWrapper): File pointer to read from
+
+        Returns:
+            str: Raw next line in file after section ends
+        """
         var_names = ('amp', 'mag_id', 'phase_id', 'delay', 'freq', 'phase')
         rline = ''
         line = ''
-        self.logger.info('RF: Reading...')
+        self._logger.info('RF: Reading...')
         while True:
             line = f.readline()
             rline = self._simplify(line)
-            if line == '' or rline in self.pulseq_keys: break
+            if line == '' or rline in self._pulseq_keys: break
 
             tmp = rline.split()
             if len(tmp) == 7: # <id> <amp> <mag id> <phase id> <delay> <freq> <phase>
                 data_line = [int(tmp[0]), float(tmp[1]), int(tmp[2]), int(tmp[3]), int(tmp[4]), float(tmp[5]), float(tmp[6])]
-                self.rf_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
+                self._rf_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
 
-        self.logger.info('RF: Complete')
+        self._logger.info('RF: Complete')
 
         return rline
 
     # [GRADIENTS] <id> <amp> <shape_id> <delay>
     def _read_grad_events(self, f):
+        """
+        Read GRADIENTS (gradient event) section in PulSeq file f to object dict memory.
+        Gradient events are formatted like: <id> <amp> <shape_id> <delay>
+
+        Args:
+            f (_io.TextIOWrapper): File pointer to read from
+
+        Returns:
+            str: Raw next line in file after section ends
+        """
         var_names = ('amp', 'shape_id', 'delay')
         rline = ''
         line = ''
-        self.logger.info('Gradients: Reading...')
+        self._logger.info('Gradients: Reading...')
         while True:
             line = f.readline()
             rline = self._simplify(line)
-            if line == '' or rline in self.pulseq_keys: break
+            if line == '' or rline in self._pulseq_keys: break
 
             tmp = rline.split()
             if len(tmp) == 4: # GRAD <id> <amp> <shape id> <delay>
                 data_line = [int(tmp[0]), float(tmp[1]), int(tmp[2]), int(tmp[3])]
-                self.grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
+                self._grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
             elif len(tmp) == 3: # GRAD <id> <amp> <shape id> NO DELAY
                 data_line = [int(tmp[0]), float(tmp[1]), int(tmp[2])]
                 data_line.append(0)
-                self.grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
+                self._grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
 
-        self.logger.info('Gradients: Complete')
+        self._logger.info('Gradients: Complete')
 
         return rline
 
     # [TRAP] <id> <amp> <rise> <flat> <fall> <delay>
     def _read_trap_events(self, f):
+        """
+        Read TRAP (trapezoid gradient event) section in PulSeq file f to object dict memory.
+        Trapezoid gradient events are formatted like: <id> <amp> <rise> <flat> <fall> <delay>
+
+        Args:
+            f (_io.TextIOWrapper): File pointer to read from
+
+        Returns:
+            str: Raw next line in file after section ends
+        """
         var_names = ('amp', 'rise', 'fall', 'flat', 'delay')
         rline = ''
         line = ''
-        self.logger.info('Trap: Reading...')
+        self._logger.info('Trap: Reading...')
         while True:
             line = f.readline()
             rline = self._simplify(line)
-            if line == '' or rline in self.pulseq_keys: break
+            if line == '' or rline in self._pulseq_keys: break
 
             tmp = rline.split()
             if len(tmp) == 6: # TRAP <id> <amp> <rise> <flat> <fall> <delay>
                 data_line = [int(tmp[0]), float(tmp[1]), int(tmp[2]), int(tmp[3]), int(tmp[4]), float(tmp[5])]
-                self.grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
+                self._grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
             elif len(tmp) == 5: # TRAP <id> <amp> <rise> <flat> <fall> NO DELAY
                 data_line = [int(tmp[0]), float(tmp[1]), int(tmp[2]), int(tmp[3]), int(tmp[4])]
                 data_line.append(0)
-                self.grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
+                self._grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
 
-        self.logger.info('Trap: Complete')
+        self._logger.info('Trap: Complete')
 
         return rline
 
     # [ADC] <id> <num> <dwell> <delay> <freq> <phase>
     def _read_adc_events(self, f):
+        """
+        Read ADC (ADC/readout event) section in PulSeq file f to object dict memory.
+        ADC events are formatted like: <id> <num> <dwell> <delay> <freq> <phase>
+
+        Args:
+            f (_io.TextIOWrapper): File pointer to read from
+
+        Returns:
+            str: Raw next line in file after section ends
+        """
         var_names = ('num', 'dwell', 'delay', 'freq', 'phase')
         rline = ''
         line = ''
-        self.logger.info('ADC: Reading...')
+        self._logger.info('ADC: Reading...')
         while True:
             line = f.readline()
             rline = self._simplify(line)
-            if line == '' or rline in self.pulseq_keys: break
+            if line == '' or rline in self._pulseq_keys: break
 
             tmp = rline.split()
             if len(tmp) == 6:
                 data_line = [int(tmp[0]), int(tmp[1]), float(tmp[2]), int(tmp[3]), float(tmp[4]), float(tmp[5])]
-                self.adc_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
+                self._adc_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
 
-        self.logger.info('ADC: Complete')
+        self._logger.info('ADC: Complete')
 
         return rline
 
     # [DELAY] <id> <delay> -> single value output
     def _read_delay_events(self, f):
+        """
+        Read DELAY (delay event) section in PulSeq file f to object dict memory (stored as a single value, not a dict).
+        Delay events are formatted like: <id> <delay>
+
+        Args:
+            f (_io.TextIOWrapper): File pointer to read from
+
+        Returns:
+            str: Raw next line in file after section ends
+        """
         rline = ''
         line = ''
-        self.logger.info('Delay: Reading...')
+        self._logger.info('Delay: Reading...')
         while True:
             line = f.readline()
             rline = self._simplify(line)
-            if line == '' or rline in self.pulseq_keys: break
+            if line == '' or rline in self._pulseq_keys: break
 
             tmp = rline.split()
             if len(tmp) == 2:
                 data_line = [int(x) for x in tmp]
-                self.delay_events[data_line[0]] = data_line[1] # Single value, delay
+                self._delay_events[data_line[0]] = data_line[1] # Single value, delay
 
-        self.logger.info('Delay: Complete')
+        self._logger.info('Delay: Complete')
 
         return rline
 
     # [SHAPES] list of entries, normalized between 0 and 1
     def _read_shapes(self, f):
+        """
+        Read SHAPES (rastered shapes) section in PulSeq file f to object dict memory.
+        Shapes are formatted with two header lines, followed by lines of single data points in compressed pulseq shape format
+
+        Args:
+            f (_io.TextIOWrapper): File pointer to read from
+
+        Returns:
+            str: Raw next line in file after section ends
+        """
         rline = ''
         line = ''
-        self.logger.info('Shapes: Reading...')
+        self._logger.info('Shapes: Reading...')
         while True:
             line = f.readline()
             rline = self._simplify(line)
-            if line == '' or rline in self.pulseq_keys: break
+            if line == '' or rline in self._pulseq_keys: break
             if len(rline.split()) == 2 and rline.split()[0].lower() == 'shape_id':
                 shape_id = int(rline.split()[1])
                 n = int(self._simplify(f.readline()).split()[1])
-                self.shapes[shape_id] = np.zeros(n)
+                self._shapes[shape_id] = np.zeros(n)
                 i = 0
                 prev = -2
                 x = 0
@@ -626,38 +783,56 @@ class PSAssembler:
                     dx = float(self._simplify(f.readline()))
                     x += dx
                     self._error_if(x > 1 or x < 0, f'Shape {shape_id} entry {i} is {x}, outside of [0, 1]')
-                    self.shapes[shape_id][i] = x
+                    self._shapes[shape_id][i] = x
                     if dx == prev:
                         r = int(self._simplify(f.readline()))
                         for _ in range(0, r):
                             i += 1
                             x += dx
                             self._error_if(x > 1 or x < 0, f'Shape {shape_id} entry {i} is {x}, outside of [0, 1]')
-                            self.shapes[shape_id][i] = x
+                            self._shapes[shape_id][i] = x
                     i += 1
                     prev = dx
 
-        self.logger.info('Shapes: Complete')
+        self._logger.info('Shapes: Complete')
 
         return rline
 
     # Unused headers
     def _read_temp(self, f):
+        """
+        Read through any unused section in PulSeq file f.
+
+        Args:
+            f (_io.TextIOWrapper): File pointer to read from
+
+        Returns:
+            str: Raw next line in file after section ends
+        """
         rline = ''
         line = ''
-        self.logger.info('(Unused): Reading...')
+        self._logger.info('(Unused): Reading...')
         while True:
             line = f.readline()
             rline = self._simplify(line)
-            if line == '' or rline in self.pulseq_keys: break
-            self.logger.debug('Unused line')
+            if line == '' or rline in self._pulseq_keys: break
+            self._logger.debug('Unused line')
 
-        self.logger.info('(Unused): Complete')
+        self._logger.info('(Unused): Complete')
 
         return rline
 
     # Simplify lines read from pulseq -- remove comments, trailing \n, trailing whitespace, commas
     def _simplify(self, line):
+        """
+        Simplify raw line to space-separated values
+
+        Args:
+            f (_io.TextIOWrapper): File pointer to read from
+
+        Returns:
+            str: Simplified string
+        """
 
         # Find and remove comments, comma
         comment_index = line.find('#')
@@ -668,7 +843,14 @@ class PSAssembler:
     
     # For crashing and logging errors (may change behavior)
     def _error_if(self, err_condition, message):
-        if err_condition: self.logger.error(message)
+        """
+        Throw an error (currently using assert) and log if error condition is met
+
+        Args:
+            err_condition (bool): Condition on which to throw error
+            message (str): Message to accompany error in log. 
+        """
+        if err_condition: self._logger.error(message)
         assert not err_condition, (message)
 
 
@@ -676,7 +858,8 @@ class PSAssembler:
 if __name__ == '__main__':
     ps = PSAssembler()
     inp_file = 'test.seq'
-    ps.assemble(inp_file)
+    tx_bytes, grad_bytes_list, command_bytes = ps.assemble(inp_file)
+    grad_x_bytes, grad_y_bytes, grad_z_bytes = grad_bytes_list
 
             
 
