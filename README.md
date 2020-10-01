@@ -1,5 +1,5 @@
 # ocra-pulseq
-Pulseq interpreter for OCRA -- will eventuall be merged into the [OCRA repository](https://github.com/OpenMRI/ocra)
+Pulseq interpreter for OCRA -- upon testing, will be merged into the [OCRA repository](https://github.com/OpenMRI/ocra)
 
 # Usage:
 `PSAssembler` is an object that initializes with timing and system specifications.
