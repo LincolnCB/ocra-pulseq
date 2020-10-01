@@ -857,10 +857,10 @@ class PSAssembler:
 # Sample usage
 if __name__ == '__main__':
     ps = PSAssembler()
-    inp_file = 'test.seq'
+    inp_file = 'pulseq_files/test0.seq'
     tx_bytes, grad_bytes_list, command_bytes = ps.assemble(inp_file)
     grad_x_bytes, grad_y_bytes, grad_z_bytes = grad_bytes_list
-
+    print("Completed successfully")
             
 
 
