@@ -1,0 +1,72 @@
+# Pulseq sequence file
+# Created by MATLAB mr toolbox
+# RF raster time: 1 us
+# Sequence: pi/2 100us RF, 20us TE, 500us rise/fall 3.2ms flat gy with same gz offset by rise time
+#   20 us TE, 500us rise/fall gx with 3.2ms ADC during flat, 1s TR, x2
+
+[VERSION]
+major 1
+minor 3
+revision 0
+
+[DEFINITIONS]
+Test 4
+
+# Format of blocks:
+#  #  D RF  GX  GY  GZ ADC EXT
+[BLOCKS]
+ 1  0  1   0   0   0  0  0
+ 2  1  0   0   0   0  0  0
+ 3  0  0   0   1   2  0  0
+ 4  1  0   0   0   0  0  0
+ 5  2  0   1   0   0  1  0
+ 6  3  0   0   0   0  0  0
+ 7  0  1   0   0   0  0  0
+ 8  1  0   0   0   0  0  0
+ 9  0  0   0   1   2  0  0
+10  1  0   0   0   0  0  0
+11  2  0   1   0   0  1  0
+12  3  0   0   0   0  0  0
+
+# Format of RF events:
+# id amplitude mag_id phase_id delay freq phase
+# ..        Hz   ....     ....    us   Hz   rad
+[RF]
+1         2500 1 2 0 0 0
+
+# Format of trapezoid gradients:
+# id amplitude rise flat fall delay
+# ..      Hz/m   us   us   us    us
+[TRAP]
+ 1           10 500 3200 500   0
+ 2           10 500 3200 500 500
+
+# Format of ADC events:
+# id num dwell delay freq phase
+# ..  ..    ns    us   Hz   rad
+[ADC]
+1 256 12500 500 0 0
+
+# Format of delays:
+# id delay (us)
+[DELAYS]
+1 20000
+2 4200
+3 1000000
+
+# Sequence Shapes
+[SHAPES]
+
+shape_id 1
+num_samples 100
+1
+0
+0
+97
+
+shape_id 2
+num_samples 100
+0
+0
+98
+

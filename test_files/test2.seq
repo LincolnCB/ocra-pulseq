@@ -1,0 +1,60 @@
+# Pulseq sequence file
+# Created by MATLAB mr toolbox
+# RF raster time: 1 us
+# Sequence: pi/2 100us RF, 20us TE, 3.2ms ADC, 1s TR, x2
+
+[VERSION]
+major 1
+minor 3
+revision 0
+
+[DEFINITIONS]
+Test 2
+
+# Format of blocks:
+#  #  D RF  GX  GY  GZ ADC EXT
+[BLOCKS]
+1  0  1   0   0   0  0  0
+2  1  0   0   0   0  0  0
+3  2  0   0   0   0  1  0
+4  3  0   0   0   0  0  0
+5  0  1   0   0   0  0  0
+6  1  0   0   0   0  0  0
+7  2  0   0   0   0  1  0
+8  3  0   0   0   0  0  0
+
+# Format of RF events:
+# id amplitude mag_id phase_id delay freq phase
+# ..        Hz   ....     ....    us   Hz   rad
+[RF]
+1         2500 1 2 0 0 0
+
+# Format of ADC events:
+# id num dwell delay freq phase
+# ..  ..    ns    us   Hz   rad
+[ADC]
+1 256 12500 0 0 0
+
+# Format of delays:
+# id delay (us)
+[DELAYS]
+1 20000
+2 3200
+3 1000000
+
+# Sequence Shapes
+[SHAPES]
+
+shape_id 1
+num_samples 100
+1
+0
+0
+97
+
+shape_id 2
+num_samples 100
+0
+0
+98
+

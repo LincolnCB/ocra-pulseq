@@ -23,15 +23,15 @@ class PSAssembler:
     """
 
     def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+6,
-                 clk_t=0.1, tx_t=0.1, grad_t=1,
-                 pulseq_t_match=True, ps_tx_t=0.1, ps_grad_t=1):
+                 clk_t=0.1, tx_t=1, grad_t=1,
+                 pulseq_t_match=True, ps_tx_t=1, ps_grad_t=1):
         """
         Create PSAssembler object with system parameters.
 
         Args:
             rf_center (int): RF center (local oscillator frequency) in Hz
             rf_amp_max (int): RF amplitude max in Hz
-            grad_max (int): Gradient max in Hz
+            grad_max (int): Gradient max in Hz/m
             clk_t (float): Clock period in us
             tx_t (float): Transmit raster period in us
             grad_t (float): Gradient raster period in us
@@ -214,7 +214,6 @@ class PSAssembler:
         
         self._logger.info('PulSeq file loaded')
         
-    # TODO Confirm this is accurate
     # Compile tx events into bytes
     def _compile_tx_data(self):
         """
@@ -270,7 +269,6 @@ class PSAssembler:
         self.tx_bytes = bytes(temp_bytearray)
         self._logger.info('Tx data compiled')
 
-    # TODO Confirm this is accurate
     # Compile grad events into bytes
     def _compile_grad_data(self):
         """
@@ -857,10 +855,10 @@ class PSAssembler:
 # Sample usage
 if __name__ == '__main__':
     ps = PSAssembler()
-    inp_file = 'test.seq'
+    inp_file = 'test_files/test4.seq'
     tx_bytes, grad_bytes_list, command_bytes = ps.assemble(inp_file)
     grad_x_bytes, grad_y_bytes, grad_z_bytes = grad_bytes_list
-
+    print("Completed successfully")
             
 
 

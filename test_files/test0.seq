@@ -1,5 +1,5 @@
-# Sequence Blocks
-# Created by JEMRIS 2.8
+# Handwritten test case
+
 [VERSION]
 major 1
 minor 1
@@ -7,8 +7,7 @@ revision 0
 
 
 [DEFINITIONS]
-Scan ID 2
-Num Blocks 3
+Test 0
 
 
 # Format of blocks:
