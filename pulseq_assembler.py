@@ -8,7 +8,6 @@
 
 import pdb # Debugging
 import numpy as np
-import math
 import logging # For errors
 import struct
 
@@ -256,6 +255,8 @@ class PSAssembler:
         # Compile as bytes (16 bits for real and imaginary)
         self._logger.info('Converting to bytes...')
         tx_arr = np.array(tx_data)
+        # Save TX array for external use
+        self.tx_arr = tx_arr
         temp_bytearray = bytearray(4 * tx_arr.size)
 
         tx_i = np.round(32767 * tx_arr.real).astype(np.uint16)
@@ -296,7 +297,7 @@ class PSAssembler:
             # Remove time when all are off
             grad_delays = [grad['delay'] for grad in grads]
             min_delay = min(grad_delays)
-            grad_delay_lens = [int((delay - min_delay) / self._ps_grad_t) if delay != math.inf else 0 for delay in grad_delays]
+            grad_delay_lens = [int((delay - min_delay) / self._ps_grad_t) if delay != np.inf else 0 for delay in grad_delays]
 
             # Array lengths (unitless)
             grad_ps_len = max([len(grad_shapes[i]) + grad_delay_lens[i] for i in range(3)])
@@ -324,10 +325,14 @@ class PSAssembler:
                 
         # Convert full data array to bytes
         self._logger.info('Converting to bytes...')
+
+        # store floating-point arrays
+        self.gr_arr = [np.array(k) for k in grad_data]
+
         for i in range(3):
             temp_bytearray = bytearray(4 * curr_offset) # 32 bits per entry per channel
 
-            gr = np.round((2**15 - 1) * np.array(grad_data[i])).astype(np.uint16) # TODO: DAC has 2 more unused bits -- could implement. 
+            gr = np.round((2**15 - 1) * self.gr_arr[i]).astype(np.uint16) # TODO: DAC has 2 more unused bits -- could implement. 
 
             # Formatted to be sent to DAC
             temp_bytearray[::4] = ((gr & 0xf) << 4).astype(np.uint8).tobytes()
@@ -351,7 +356,7 @@ class PSAssembler:
 
         # Append zero shape first
         max_id += 1
-        self._grad_events[0] = {'amp': 0, 'shape_id': max_id, 'delay': math.inf}
+        self._grad_events[0] = {'amp': 0, 'shape_id': max_id, 'delay': np.inf}
         self._shapes[max_id] = np.zeros(0)
         
         # Create and append new trap shapes, and convert trap into standard grad events
