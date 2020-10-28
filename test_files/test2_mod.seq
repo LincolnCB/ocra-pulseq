@@ -12,10 +12,10 @@ revision 0
 Test 2
 
 # Format of blocks:
-#  #  D RF  GX  GY  GZ ADC EXT
+#  D RF  GX  GY  GZ ADC EXT
 [BLOCKS]
 1  0  1   0   0   0  0  0
-2  1  0   0   0   0  0  0
+2  0  0   1   0   0  0  0
 3  0  1   0   0   0  0  0
 4  2  0   0   0   0  1  0
 5  1  0   0   0   0  0  0
@@ -37,11 +37,15 @@ Test 2
 # 1 256 777 0 0 0
 1 64 777 0 0 0
 
+# id amp shape_id delay
+[GRADIENTS]
+1 10 4 0
+
 # Format of delays:
 # id delay (us)
 [DELAYS]
 1 10
-2 1
+2 100
 3 20
 
 # Sequence Shapes
@@ -72,3 +76,15 @@ num_samples 100
 0
 47
 
+shape_id 4
+num_samples 100
+0
+0.04
+0.04
+18
+0
+0
+58
+-0.04
+-0.04
+17

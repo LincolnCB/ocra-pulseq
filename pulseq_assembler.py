@@ -203,9 +203,9 @@ class PSAssembler:
         dwell = None
         for adc_id, adc in self._adc_events.items():
             if dwell is None:
-                dwell = adc['dwell']
+                dwell = adc['dwell']/1000
                 base_id = adc_id
-            self._error_if(adc['dwell'] != dwell, f"Dwell time of ADC event {adc_id} ({adc['dwell']}) doesn't match that of ADC event {base_id} ({dwell})")
+            self._error_if(adc['dwell']/1000 != dwell, f"Dwell time of ADC event {adc_id} ({adc['dwell']}) doesn't match that of ADC event {base_id} ({dwell})")
         if dwell is not None:
             self._rx_div = int(dwell / self._clk_t)
             self._error_if(self._rx_div * self._clk_t != dwell, 'ADC dwell time is not a multiple of clk_t')
@@ -459,7 +459,10 @@ class PSAssembler:
         block = self._blocks[block_id]
         
         # Determine important times in us (when gates change)
-        delay = block['delay']
+        if block['delay'] != 0:
+            delay = self._delay_events[block['delay']]
+        else:
+            delay = 0
         tx_start = tx_end = grad_start = grad_end = rx_start = rx_end = 0
         rf_id = block['rf']
         grad_ids = (block['gx'], block['gy'], block['gz'])
@@ -473,7 +476,7 @@ class PSAssembler:
         if adc_id:
             adc = self._adc_events[adc_id]
             rx_start = adc['delay']
-            rx_end = adc['dwell'] * adc['num']
+            rx_end = adc['dwell'] * adc['num'] / 1000 # ns -> us
 
         # Remove duplicates and confirm min delay from delay event is met. 
         time_list = list(set([tx_start, tx_end, grad_start, grad_end, rx_start, rx_end]))
