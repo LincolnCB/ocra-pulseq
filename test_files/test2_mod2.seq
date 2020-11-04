@@ -1,0 +1,147 @@
+# Pulseq sequence file
+# Created by MATLAB mr toolbox
+# RF raster time: 1 us
+# Sequence: pi/2 100us RF, 2ms TE, 3.2ms ADC, 1ms TR, x2
+
+[VERSION]
+major 1
+minor 3
+revision 0
+
+[DEFINITIONS]
+Test 2
+
+# Format of blocks:
+#  D RF  GX  GY  GZ ADC EXT
+[BLOCKS]
+# 1  0  2   0   0   0  0  0
+# 2  0  0   1   0   0  0  0
+3  0  1   0   0   0  1  0
+# 4  0  0   0   0   0  1  0
+# 4  2  0   0   0   0  0  0
+# 5  1  0   0   0   0  0  0
+# 6  0  1   0   0   0  0  0
+# 7  1  0   0   0   0  0  0
+# 8  2  0   0   0   0  0  0
+# 9  3  0   0   0   0  0  0
+
+# Format of RF events:
+# id amplitude mag_id phase_id delay freq phase
+# ..        Hz   ....     ....    us   Hz   rad
+[RF]
+# 1         2500 3 2 0 0 0
+# 1         2500 5 2 0 0 0 # ramp
+1         2500 6 2 0 0 0 # 10 steps
+2         2500 5 2 0 0 0 # 10 steps
+
+# Format of ADC events:
+# id num dwell delay freq phase
+# ..  ..    ns    us   Hz   rad
+[ADC]
+# 1 256 777 0 0 0
+1 2360 595 0 0 0
+
+# id amp shape_id delay
+[GRADIENTS]
+1 10 7 0
+
+# Format of delays:
+# id delay (us)
+[DELAYS]
+1 10
+2 100
+3 20
+
+# Sequence Shapes
+[SHAPES]
+
+shape_id 1
+num_samples 100
+1
+0
+0
+97
+
+shape_id 2
+num_samples 100
+0
+0
+98
+
+shape_id 3
+num_samples 100
+1
+-0.2
+0
+0
+46
+-0.5
+0
+0
+47
+
+shape_id 4
+num_samples 100
+0
+0.04
+0.04
+18
+0
+0
+58
+-0.04
+-0.04
+17
+
+shape_id 5
+num_samples 100
+0.0099
+0.0099
+98
+
+shape_id 6
+num_samples 100
+0.09
+0
+0
+7
+0.09
+0
+0
+7
+0.09
+0
+0
+7
+0.09
+0
+0
+7
+0.09
+0
+0
+7
+0.09
+0
+0
+7
+0.09
+0
+0
+7
+0.09
+0
+0
+7
+0.09
+0
+0
+7
+0.09
+0
+0
+7
+
+shape_id 7
+num_samples 1
+0.5
