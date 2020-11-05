@@ -207,8 +207,8 @@ class PSAssembler:
                 base_id = adc_id
             self._error_if(adc['dwell']/1000 != dwell, f"Dwell time of ADC event {adc_id} ({adc['dwell']}) doesn't match that of ADC event {base_id} ({dwell})")
         if dwell is not None:
-            self._rx_div = int(dwell / self._clk_t)
-            self._error_if(self._rx_div * self._clk_t != dwell, 'ADC dwell time is not a multiple of clk_t')
+            self._rx_div = np.round(dwell / self._clk_t).astype(int)
+            self._error_if(np.abs(self._rx_div * self._clk_t - dwell) > 1e-6, 'ADC dwell time is not a multiple of clk_t')
             self._rx_t = dwell
         
         self._logger.info('PulSeq file loaded')
