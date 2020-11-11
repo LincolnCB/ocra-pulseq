@@ -23,7 +23,8 @@ class PSAssembler:
 
     def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+6,
                  clk_t=0.1, tx_t=1, grad_t=1,
-                 pulseq_t_match=True, ps_tx_t=1, ps_grad_t=1):
+                 pulseq_t_match=True, ps_tx_t=1, ps_grad_t=1,
+                 grad_pad=2):
         """
         Create PSAssembler object with system parameters.
 
@@ -37,6 +38,7 @@ class PSAssembler:
             pulseq_t_match (bool): Set to False if PulSeq file transmit and gradient raster times do not match OCRA transmit and raster times.
             ps_tx_t (float): PulSeq transmit raster period in us, if pulseq_t_match is False
             ps_grad_t (float): PulSeq gradient raster period in us, if pulseq_t_match is False
+            grad_pad (int): TODO [LCB]
         """
         # Logging
         self._logger = logging.getLogger()
@@ -73,6 +75,7 @@ class PSAssembler:
         self._grad_t = grad_t # Gradient sample period in us
         self._rx_div = None
         self._rx_t = None
+        self._grad_pad = grad_pad
 
         if not pulseq_t_match:
             self._ps_tx_t = ps_tx_t # us
@@ -300,7 +303,7 @@ class PSAssembler:
             grad_delay_lens = [int((delay - min_delay) / self._ps_grad_t) if delay != np.inf else 0 for delay in grad_delays]
 
             # Array lengths (unitless)
-            grad_ps_len = max([len(grad_shapes[i]) + grad_delay_lens[i] for i in range(3)])
+            grad_ps_len = max([len(grad_shapes[i]) + grad_delay_lens[i] for i in range(3)]) + self._grad_pad
             grad_len = int(grad_ps_len * self._ps_grad_t / self._grad_t)
 
             # Leading edge time arrays for interpolation
@@ -678,7 +681,7 @@ class PSAssembler:
         Returns:
             str: Raw next line in file after section ends
         """
-        var_names = ('amp', 'rise', 'fall', 'flat', 'delay')
+        var_names = ('amp', 'rise', 'flat', 'fall', 'delay')
         rline = ''
         line = ''
         self._logger.info('Trap: Reading...')
