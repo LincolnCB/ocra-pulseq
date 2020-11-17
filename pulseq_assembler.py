@@ -68,11 +68,13 @@ class PSAssembler:
 
         self._clk_t = clk_t # Instruction clock period in us
         self._tx_div = int(tx_t / self._clk_t) # Clock cycles per tx
-        self._error_if(self._tx_div * self._clk_t != tx_t, f'tx_t ({tx_t}) is not a multiple of clk_t ({clk_t})')
         self._tx_t = tx_t # Transmit sample period in us
+        self._warning_if(self._tx_div * self._clk_t != tx_t, 
+            f'tx_t ({tx_t}) rounded to {self._tx_t}, multiple of clk_t ({clk_t})')
         self._grad_div = int(grad_t / self._clk_t) # Clock cycles per grad
-        self._error_if(self._grad_div * self._clk_t != grad_t, f'grad_t ({(grad_t)}) is not a multiple of clk_t ({clk_t})')
-        self._grad_t = grad_t # Gradient sample period in us
+        self._grad_t = clk_t * self._grad_div # Gradient sample period in us
+        self._warning_if(self._grad_div * self._clk_t != grad_t, 
+            f'grad_t ({(grad_t)}) rounded to {self._grad_t}, multiple of clk_t ({clk_t})')
         self._rx_div = None
         self._rx_t = None
         self._grad_pad = grad_pad
@@ -211,8 +213,9 @@ class PSAssembler:
             self._error_if(adc['dwell']/1000 != dwell, f"Dwell time of ADC event {adc_id} ({adc['dwell']}) doesn't match that of ADC event {base_id} ({dwell})")
         if dwell is not None:
             self._rx_div = np.round(dwell / self._clk_t).astype(int)
-            self._error_if(np.abs(self._rx_div * self._clk_t - dwell) > 1e-6, 'ADC dwell time is not a multiple of clk_t')
-            self._rx_t = dwell
+            self._rx_t = self._clk_t * self._rx_div
+            self._warning_if(self._rx_div * self._clk_t != dwell, 
+                f'Dwell time ({dwell}) rounded to {self._rx_t}, multiple of clk_t ({clk_t})')
         
         self._logger.info('PulSeq file loaded')
         
@@ -593,10 +596,12 @@ class PSAssembler:
             tmp = rline.split()
             if len(tmp) == 8: # <id> <delay> <rf> <gx> <gy> <gz> <adc> <ext>
                 data_line = [int(x) for x in tmp]
+                self._warning_if(data_line[0] in self._blocks, f'Repeat block ID {data_line[0]}, overwriting')
                 self._blocks[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
             elif len(tmp) == 7: # Spec allows extension ID not included, add it in as 0
                 data_line = [int(x) for x in tmp]
                 data_line.append(0)
+                self._warning_if(data_line[0] in self._blocks, f'Repeat block ID {data_line[0]}, overwriting')
                 self._blocks[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
         
         if len(self._blocks) == 0: self._logger.error('Zero blocks read, nonzero blocks needed')
@@ -629,6 +634,7 @@ class PSAssembler:
             tmp = rline.split()
             if len(tmp) == 7: # <id> <amp> <mag id> <phase id> <delay> <freq> <phase>
                 data_line = [int(tmp[0]), float(tmp[1]), int(tmp[2]), int(tmp[3]), int(tmp[4]), float(tmp[5]), float(tmp[6])]
+                self._warning_if(data_line[0] in self._rf_events, f'Repeat RF ID {data_line[0]}, overwriting')
                 self._rf_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
 
         self._logger.info('RF: Complete')
@@ -659,10 +665,12 @@ class PSAssembler:
             tmp = rline.split()
             if len(tmp) == 4: # GRAD <id> <amp> <shape id> <delay>
                 data_line = [int(tmp[0]), float(tmp[1]), int(tmp[2]), int(tmp[3])]
+                self._warning_if(data_line[0] in self._grad_events, f'Repeat gradient ID {data_line[0]} in GRADIENTS, overwriting')
                 self._grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
             elif len(tmp) == 3: # GRAD <id> <amp> <shape id> NO DELAY
                 data_line = [int(tmp[0]), float(tmp[1]), int(tmp[2])]
                 data_line.append(0)
+                self._warning_if(data_line[0] in self._grad_events, f'Repeat gradient ID {data_line[0]}, in GRADIENTS, overwriting')
                 self._grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
 
         self._logger.info('Gradients: Complete')
@@ -693,10 +701,12 @@ class PSAssembler:
             tmp = rline.split()
             if len(tmp) == 6: # TRAP <id> <amp> <rise> <flat> <fall> <delay>
                 data_line = [int(tmp[0]), float(tmp[1]), int(tmp[2]), int(tmp[3]), int(tmp[4]), float(tmp[5])]
+                self._warning_if(data_line[0] in self._grad_events, f'Repeat gradient ID {data_line[0]} in TRAP, overwriting')
                 self._grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
             elif len(tmp) == 5: # TRAP <id> <amp> <rise> <flat> <fall> NO DELAY
                 data_line = [int(tmp[0]), float(tmp[1]), int(tmp[2]), int(tmp[3]), int(tmp[4])]
                 data_line.append(0)
+                self._warning_if(data_line[0] in self._grad_events, f'Repeat gradient ID {data_line[0]} in TRAP, overwriting')
                 self._grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
 
         self._logger.info('Trap: Complete')
@@ -756,6 +766,7 @@ class PSAssembler:
             tmp = rline.split()
             if len(tmp) == 2:
                 data_line = [int(x) for x in tmp]
+                self._warning_if(data_line[0] in self._delay_events, f'Repeat delay ID {data_line[0]}, overwriting')
                 self._delay_events[data_line[0]] = data_line[1] # Single value, delay
 
         self._logger.info('Delay: Complete')
@@ -784,6 +795,7 @@ class PSAssembler:
             if len(rline.split()) == 2 and rline.split()[0].lower() == 'shape_id':
                 shape_id = int(rline.split()[1])
                 n = int(self._simplify(f.readline()).split()[1])
+                self._warning_if(shape_id in self._shapes, f'Repeat shape ID {shape_id}, overwriting')
                 self._shapes[shape_id] = np.zeros(n)
                 i = 0
                 prev = -2
@@ -791,14 +803,22 @@ class PSAssembler:
                 while i < n:
                     dx = float(self._simplify(f.readline()))
                     x += dx
-                    self._error_if(x > 1 or x < 0, f'Shape {shape_id} entry {i} is {x}, outside of [0, 1]')
+                    self._warning_if(x > 1 or x < 0, f'Shape {shape_id} entry {i} is {x}, outside of [0, 1], rounding')
+                    if x > 1:
+                        x = 1
+                    elif x < 0:
+                        x = 0
                     self._shapes[shape_id][i] = x
                     if dx == prev:
                         r = int(self._simplify(f.readline()))
                         for _ in range(0, r):
                             i += 1
                             x += dx
-                            self._error_if(x > 1 or x < 0, f'Shape {shape_id} entry {i} is {x}, outside of [0, 1]')
+                            self._warning_if(x > 1 or x < 0, f'Shape {shape_id} entry {i} is {x}, outside of [0, 1], rounding')
+                            if x > 1:
+                                x = 1
+                            elif x < 0:
+                                x = 0
                             self._shapes[shape_id][i] = x
                     i += 1
                     prev = dx
@@ -861,6 +881,17 @@ class PSAssembler:
         """
         if err_condition: self._logger.error(message)
         assert not err_condition, (message)
+
+    # For warnings without crashing
+    def _warning_if(self, warn_condition, message):
+        """
+        Print warning and log if error condition is met
+
+        Args:
+            warn_condition (bool): Condition on which to warn
+            message (str): Message to accompany warning in log. 
+        """
+        if warn_condition: self._logger.warning(message)
 
 
 # Sample usage
