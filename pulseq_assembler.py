@@ -24,7 +24,7 @@ class PSAssembler:
     def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+6,
                  clk_t=0.1, tx_t=1, grad_t=1,
                  pulseq_t_match=True, ps_tx_t=1, ps_grad_t=1,
-                 grad_pad=2):
+                 grad_pad=0, addresses_per_grad_sample=1):
         """
         Create PSAssembler object with system parameters.
 
@@ -38,7 +38,8 @@ class PSAssembler:
             pulseq_t_match (bool): Set to False if PulSeq file transmit and gradient raster times do not match OCRA transmit and raster times.
             ps_tx_t (float): PulSeq transmit raster period in us, if pulseq_t_match is False
             ps_grad_t (float): PulSeq gradient raster period in us, if pulseq_t_match is False
-            grad_pad (int): TODO [LCB]
+            grad_pad (int): Default 0 -- Padding zeros at the end of gradients to prevent maintained gradient levels
+            addresses_per_grad_sample (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards
         """
         # Logging
         self._logger = logging.getLogger()
@@ -90,6 +91,9 @@ class PSAssembler:
         self._rf_amp_max = rf_amp_max # Hz
         self._grad_max = grad_max # Hz/m
 
+        self._grad_pad = grad_pad
+        self._offset_step = addresses_per_grad_sample
+
         self._tx_offsets = {} # Tx word index (32-bit) by Tx ID
         self._tx_delays = {} # us
         self._tx_durations = {} # us
@@ -100,6 +104,7 @@ class PSAssembler:
         self.tx_bytes = bytes()
         self.grad_bytes = [bytes(), bytes(), bytes()] # x, y, z
         self.command_bytes = bytes()
+        self.readout_number = 0
 
         self._opcode_table = {
 			'NOP' :     '000000',
@@ -125,7 +130,7 @@ class PSAssembler:
         self._reg_nums = {}
 
     # Wrapper for full assembly
-    def assemble(self, pulseq_file):
+    def assemble(self, pulseq_file, reset=True):
         """
         Assemble OCRA machine code from PulSeq .seq file
 
@@ -133,13 +138,13 @@ class PSAssembler:
             pulseq_file (str): PulSeq file to assemble from
         
         Returns:
-            list: Transmit bytes (bytes); list of gradient bytes (list) (bytes); command bytes (bytes)
+            tuple: Transmit bytes (bytes); list of gradient bytes (list) (bytes); command bytes (bytes); expected RX readout count (int)
         """
         self._read_pulseq(pulseq_file)
         self._compile_tx_data()
         self._compile_grad_data()
         self._compile_instructions()
-        return (self.tx_bytes, self.grad_bytes, self.command_bytes)
+        return (self.tx_bytes, self.grad_bytes, self.command_bytes, self.readout_number)
 
     # Open file and read in all sections into class storage
     def _read_pulseq(self, pulseq_file):
@@ -182,7 +187,15 @@ class PSAssembler:
                 self._error_if(grad['shape_id'] not in self._shapes, f'Invalid grad shape id: {grad["shape_id"]}')
         self._logger.info('Valid ids')
 
-        # TODO: Check that all delays are multiples of clk_t
+        # Check that all delays are multiples of clk_t
+        for events in [self._blocks.values(), self._rf_events.values(), self._grad_events.values(), 
+                        self._adc_events.values()]:
+            for event in events:
+                self._warning_if(int(event['delay'] / self._clk_t) * self._clk_t != event['delay'],
+                    f'Delay is not a multiple of clk_t, rounding')
+        for delay in self._delay_events.values():
+            self._warning_if(int(delay / self._clk_t) * self._clk_t != delay,
+                f'Delay is not a multiple of clk_t, rounding')
         
         # Check that RF/ADC (TX/RX) only have one frequency offset -- can't be set within one file.
         freq = None
@@ -215,7 +228,7 @@ class PSAssembler:
             self._rx_div = np.round(dwell / self._clk_t).astype(int)
             self._rx_t = self._clk_t * self._rx_div
             self._warning_if(self._rx_div * self._clk_t != dwell, 
-                f'Dwell time ({dwell}) rounded to {self._rx_t}, multiple of clk_t ({clk_t})')
+                f'Dwell time ({dwell}) rounded to {self._rx_t}, multiple of clk_t ({self._clk_t})')
         
         self._logger.info('PulSeq file loaded')
         
@@ -256,7 +269,7 @@ class PSAssembler:
             self._tx_offsets[tx_id] = curr_offset
             self._tx_durations[tx_id] = pulse_len * self._tx_t
             self._tx_delays[tx_id] = tx['delay']
-            curr_offset += pulse_len
+            curr_offset += pulse_len * self._offset_step
 
         # Compile as bytes (16 bits for real and imaginary)
         self._logger.info('Converting to bytes...')
@@ -327,7 +340,7 @@ class PSAssembler:
             self._grad_offsets[grad_ids] = curr_offset
             self._grad_durations[grad_ids] = grad_len * self._grad_t
             self._grad_delays[grad_ids] = min_delay
-            curr_offset += grad_len
+            curr_offset += grad_len * self._offset_step
                 
         # Convert full data array to bytes
         self._logger.info('Converting to bytes...')
@@ -483,6 +496,7 @@ class PSAssembler:
             adc = self._adc_events[adc_id]
             rx_start = adc['delay']
             rx_end = adc['dwell'] * adc['num'] / 1000 # ns -> us
+            self.readout_number += adc['num']
 
         # Remove duplicates and confirm min delay from delay event is met. 
         time_list = list(set([tx_start, tx_end, grad_start, grad_end, rx_start, rx_end]))
@@ -898,7 +912,7 @@ class PSAssembler:
 if __name__ == '__main__':
     ps = PSAssembler()
     inp_file = 'test_files/test4.seq'
-    tx_bytes, grad_bytes_list, command_bytes = ps.assemble(inp_file)
+    tx_bytes, grad_bytes_list, command_bytes, output_count = ps.assemble(inp_file)
     grad_x_bytes, grad_y_bytes, grad_z_bytes = grad_bytes_list
     print("Completed successfully")
             
