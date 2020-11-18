@@ -19,6 +19,7 @@ class PSAssembler:
         tx_bytes (bytes): Transmit data bytes
         grad_bytes (list): List of grad bytes
         command_bytes (bytes): Command bytes
+        readout_number (int): Expected number of readouts
     """
 
     def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+6,
