@@ -33,7 +33,11 @@ You can pass these to existing OCRA servers, such as [MaRCoS](https://github.com
 
 `ps_grad_t` (float): PulSeq gradient raster period in us, if pulseq_t_match is False
 
-`grad_pad` (int): Default 0 -- Padding zeros at the end of gradients to prevent maintained gradient levels. Currently may change timing.
+`tx_warmup` (float): Default 0 -- Delay at the beginning of RF to give TR warmup in us. Padding will change timing
+
+`grad_pad` (int): Default 0 -- Padding zero samples at the end of gradients to prevent maintained gradient levels. Padding will change timing
+
+`adc_pad` (int): Default 0 -- Padding samples in ADC to account for junk in system buffer. Padding will change timing
 
 `addresses_per_grad_sample` (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards with byte interleaving
 

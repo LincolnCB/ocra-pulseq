@@ -25,7 +25,7 @@ class PSAssembler:
     def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+6,
                  clk_t=0.1, tx_t=1, grad_t=1,
                  pulseq_t_match=True, ps_tx_t=1, ps_grad_t=1,
-                 grad_pad=0, addresses_per_grad_sample=1):
+                 tx_warmup=0, grad_pad=0, adc_pad=0, addresses_per_grad_sample=1):
         """
         Create PSAssembler object with system parameters.
 
@@ -39,7 +39,9 @@ class PSAssembler:
             pulseq_t_match (bool): Set to False if PulSeq file transmit and gradient raster times do not match OCRA transmit and raster times.
             ps_tx_t (float): PulSeq transmit raster period in us, if pulseq_t_match is False
             ps_grad_t (float): PulSeq gradient raster period in us, if pulseq_t_match is False
+            tx_warmup (float): Default 0 -- Delay at the beginning of RF to give TR warmup in us
             grad_pad (int): Default 0 -- Padding zeros at the end of gradients to prevent maintained gradient levels
+            adc_pad (int): Default 0 -- Padding samples in ADC to account for junk in system buffer
             addresses_per_grad_sample (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards
         """
         # Logging
@@ -79,7 +81,14 @@ class PSAssembler:
             f'grad_t ({(grad_t)}) rounded to {self._grad_t}, multiple of clk_t ({clk_t})')
         self._rx_div = None
         self._rx_t = None
+        self._tx_warmup_samples = int(tx_warmup / self._tx_t)
+        self._warning_if(self._tx_warmup_samples * self._tx_t != tx_warmup, 
+            f'tx_warmup ({tx_warmup}) rounded to {self._tx_warmup_samples * self._tx_t}, multiple of tx_t ({self._tx_t})')
+        self._error_if(self._tx_warmup_samples < 0, 'Negative tx warmup')
         self._grad_pad = grad_pad
+        self._error_if(self._grad_pad < 0, 'Negative grad padding')
+        self._adc_pad = adc_pad
+        self._error_if(self._adc_pad < 0, 'Negative adc padding')
 
         if not pulseq_t_match:
             self._ps_tx_t = ps_tx_t # us
@@ -260,8 +269,12 @@ class PSAssembler:
             mag_interp = np.interp(x, np.linspace(0, (len(mag_shape) - 1) * self._ps_tx_t, num=len(mag_shape)), mag_shape) * tx['amp'] / self._rf_amp_max
             phase_interp = np.interp(x, np.linspace(0, (len(phase_shape) - 1) * self._ps_tx_t, num=len(phase_shape)), phase_shape) * 2 * np.pi
 
+            # Add tx warmup padding
+            pulse_len += self._tx_warmup_samples
+            tx_env = np.zeros(pulse_len)
+
             # Convert to complex tx envelope
-            tx_env = np.exp((phase_interp + tx['phase']) * 1j) * mag_interp
+            tx_env[self._tx_warmup_samples:] = np.exp((phase_interp + tx['phase']) * 1j) * mag_interp
             if np.any(np.abs(tx_env) > 1.0):
                 self._logger.warning(f'Magnitude of RF event {tx_id} was too large, 16-bit signed overflow will occur')
             
@@ -410,6 +423,13 @@ class PSAssembler:
             PR_gates.extend(temp[1])
             TX_offsets.extend(temp[2])
             GRAD_offsets.extend(temp[3])
+
+        # Zero gates at the end
+        end_gate = np.zeros(1, dtype=np.uint8)[0] | self._bit_table['RX_PULSE']
+        PR_durations.append(1)
+        PR_gates.append(end_gate)
+        TX_offsets.append(-1)
+        GRAD_offsets.append(-1)
         
         # Set up gate variables
         self._logger.info('Storing gate variables...')
@@ -446,7 +466,7 @@ class PSAssembler:
             if TX_offsets[i] != -1: cmds.append(self._format_B('TXOFFSET', 0, TX_offsets[i]))
             if GRAD_offsets[i] != -1: cmds.append(self._format_B('GRADOFFSET', 0, GRAD_offsets[i]))
             cmds.append(self._format_B('PR', PR_registers[i], PR_clk_delays[i]))
-        
+
         # Halt
         cmds.append(self._format_A('HALT', 0, 0))
         self._logger.info('Writing commands...')
@@ -496,8 +516,9 @@ class PSAssembler:
         if adc_id:
             adc = self._adc_events[adc_id]
             rx_start = adc['delay']
-            rx_end = adc['dwell'] * adc['num'] / 1000 # ns -> us
-            self.readout_number += adc['num']
+            rx_end = self._rx_t * adc['num']
+            rx_end += self._rx_t * self._adc_pad # Add padding
+            self.readout_number += adc['num'] + self._adc_pad
 
         # Remove duplicates and confirm min delay from delay event is met. 
         time_list = list(set([tx_start, tx_end, grad_start, grad_end, rx_start, rx_end]))
@@ -570,7 +591,7 @@ class PSAssembler:
         remaining_bits = 64 - len(opcode_bin) - len(reg_bin) - len(arg_bin) # Remaining bits
         remainder = '0'.zfill(remaining_bits) 
         return opcode_bin + remainder + reg_bin + arg_bin
-    def _format_C(self, opcode, arg):
+    def _format_C(self, op, arg):
         """
         Write command bytes in format C: 6 bits opcode, filler bits, 40 bits argument
 
@@ -581,7 +602,7 @@ class PSAssembler:
         Returns:
             str: Binary string of full word/line
         """
-        opcode_bin = self._opcode_table[opcode]
+        opcode_bin = self._opcode_table[op]
         arg_bin = format(arg, 'b').zfill(40)
         remaining_bits = 64 - len(opcode_bin) - len(arg_bin) # Remaining bits
         remainder = '0'.zfill(remaining_bits) 
