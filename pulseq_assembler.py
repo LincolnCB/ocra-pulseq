@@ -111,12 +111,16 @@ class PSAssembler:
         self._grad_delays = {} # us
         self._grad_durations = {} # us
 
+        self.tx_arr = np.zeros(0, dtype=np.complex64)
+        self.gr_arr = [np.zeros(0), np.zeros(0), np.zeros(0)] # x, y, z
+
         self.tx_bytes = bytes()
         self.grad_bytes = [bytes(), bytes(), bytes()] # x, y, z
         self.command_bytes = bytes()
         self.readout_number = 0
+        self.is_assembled = False
 
-        self._opcode_table = {
+        self._opcode = {
 			'NOP' :     '000000',
             'HALT' :    '011001',
 			'DEC' :     '000001',   # A
@@ -130,7 +134,7 @@ class PSAssembler:
             'LITR' :        '000011', # B
             'RASTCSYNC' :   '000101', # C
 		}
-        self._bit_table = {
+        self._gate_bits = {
             'TX_PULSE':   int('0b00000001', 2),
             'RX_PULSE':   int('0b00000010', 2), # NOTE: Inverted logic
             'GRAD_PULSE': int('0b00000100', 2),
@@ -150,11 +154,63 @@ class PSAssembler:
         Returns:
             tuple: Transmit bytes (bytes); list of gradient bytes (list) (bytes); command bytes (bytes); expected RX readout count (int)
         """
+        self._logger.info(f'Assembling ' + pulseq_file)
+        if self.is_assembled:
+            self._logger.info('Overwriting old sequence...')
+        
         self._read_pulseq(pulseq_file)
         self._compile_tx_data()
         self._compile_grad_data()
         self._compile_instructions()
+        self.is_assembled = True
         return (self.tx_bytes, self.grad_bytes, self.command_bytes, self.readout_number)
+
+    # Return time-based pulse sequence arrays, good to plot
+    def sequence(self):
+        """
+        Simplifies assembled sequence, returning usable time sequence arrays. Requires assembled file. 
+
+        Returns:
+            numpy.ndarray: 1 x T time array (x-axis), in us. 
+            numpy.ndarray: 5 x T array, of RF, GX, GY, GZ, ADC, normalized to 1 at respective maxes.
+        """
+        self._error_if(not self.is_assembled, f'Requires assembled sequence.')
+        self._logger.info('Compiling sequence...')
+        PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
+        
+
+        end_time = np.sum(PR_durations)
+        time_axis = np.linspace(0, end_time, num=int(end_time / self._clk_t) + 1)
+
+        output_array = np.zeros((5, int(end_time / self._clk_t) + 1), dtype=np.complex64)
+
+        start_div = end_div = 0
+        for n in range(len(PR_durations)):
+            end_div = int(start_div + PR_durations[n] / self._clk_t)
+            gate = PR_gates[n]
+            if TX_offsets[n] != -1:
+                # compile tx
+                off = TX_offsets[n]
+                tx_divs = int((end_div - start_div) / self._tx_div)
+                for tx_d in range(tx_divs):
+                    output_array[0, start_div + tx_d * self._tx_div : start_div + (tx_d + 1) * self._tx_div] \
+                        = self.tx_arr[off + tx_d]
+                
+            if GRAD_offsets[n] != -1:
+                # compile grad
+                off = GRAD_offsets[n]
+                
+                grad_divs = int((end_div - start_div) / self._grad_div)
+                for i in range(3):
+                    for gr_d in range(grad_divs):
+                        output_array[1 + i, start_div + gr_d * self._grad_div : start_div + (gr_d + 1) * self._grad_div] \
+                            = self.gr_arr[i][off + gr_d]
+            if not gate & self._gate_bits['RX_PULSE']:
+                output_array[4, start_div:end_div] = 1
+
+            start_div = end_div
+
+        return time_axis, output_array
 
     # Open file and read in all sections into class storage
     def _read_pulseq(self, pulseq_file):
@@ -271,10 +327,11 @@ class PSAssembler:
 
             # Add tx warmup padding
             pulse_len += self._tx_warmup_samples
-            tx_env = np.zeros(pulse_len)
+            tx_env = np.zeros(pulse_len, dtype=np.complex64)
 
             # Convert to complex tx envelope
             tx_env[self._tx_warmup_samples:] = np.exp((phase_interp + tx['phase']) * 1j) * mag_interp
+            
             if np.any(np.abs(tx_env) > 1.0):
                 self._logger.warning(f'Magnitude of RF event {tx_id} was too large, 16-bit signed overflow will occur')
             
@@ -412,25 +469,9 @@ class PSAssembler:
         Compiles event blocks into instruction bytes
         """
         self._logger.info('Compiling instructions...')
-        # Encode all blocks
-        PR_durations = []
-        PR_gates = []
-        TX_offsets = []
-        GRAD_offsets = []
-        for block_id in self._blocks.keys():
-            temp = self._encode_block(block_id)
-            PR_durations.extend(temp[0])
-            PR_gates.extend(temp[1])
-            TX_offsets.extend(temp[2])
-            GRAD_offsets.extend(temp[3])
-
-        # Zero gates at the end
-        end_gate = np.zeros(1, dtype=np.uint8)[0] | self._bit_table['RX_PULSE']
-        PR_durations.append(1)
-        PR_gates.append(end_gate)
-        TX_offsets.append(-1)
-        GRAD_offsets.append(-1)
         
+        PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
+
         # Set up gate variables
         self._logger.info('Storing gate variables...')
         gates = list(set(PR_gates))
@@ -484,6 +525,34 @@ class PSAssembler:
         self.command_bytes = bytes().join([struct.pack('<I', cmd_32_int) for cmd_32_int in cmd_32_ints])
         self._logger.info('Commands compiled')
 
+    # Encode all blocks
+    def _encode_all_blocks(self):
+        """
+        Encode all blocks into sequential gate changes.
+
+        Returns:
+            Aligned lists of durations, gates, TX and GRAD offsets for sequential instructions. 
+        """
+        # Encode all blocks
+        PR_durations = []
+        PR_gates = []
+        TX_offsets = []
+        GRAD_offsets = []
+        for block_id in self._blocks.keys():
+            temp = self._encode_block(block_id)
+            PR_durations.extend(temp[0])
+            PR_gates.extend(temp[1])
+            TX_offsets.extend(temp[2])
+            GRAD_offsets.extend(temp[3])
+
+        # Zero gates at the end
+        PR_durations.append(1)
+        PR_gates.append(np.zeros(1, dtype=np.uint8)[0] | self._gate_bits['RX_PULSE'])
+        TX_offsets.append(-1)
+        GRAD_offsets.append(-1)
+
+        return (PR_durations, PR_gates, TX_offsets, GRAD_offsets)
+
     # Convert individual block into PR commands (duration, gates), TX offset, and GRAD offset
     def _encode_block(self, block_id):
         """
@@ -532,11 +601,11 @@ class PSAssembler:
         for i in range(times.size):
             time = times[i]
             if time >= tx_start and time < tx_end:
-                gates[i] = gates[i] | self._bit_table['TX_GATE'] | self._bit_table['TX_PULSE']
+                gates[i] = gates[i] | self._gate_bits['TX_GATE'] | self._gate_bits['TX_PULSE']
             if time >= grad_start and time < grad_end:
-                gates[i] = gates[i] | self._bit_table['GRAD_PULSE']
+                gates[i] = gates[i] | self._gate_bits['GRAD_PULSE']
             if time < rx_start or time >= rx_end:
-                gates[i] = gates[i] | self._bit_table['RX_PULSE']
+                gates[i] = gates[i] | self._gate_bits['RX_PULSE']
 
         # Set offsets for each time (leading edge)
         tx_addr = np.zeros(times.size, dtype=np.int) - 1
@@ -567,7 +636,7 @@ class PSAssembler:
         Returns:
             str: Binary string of full word/line
         """
-        opcode_bin = self._opcode_table[op]
+        opcode_bin = self._opcode[op]
         reg_bin = format(rx, 'b').zfill(5)
         addr_bin = format(addr, 'b').zfill(32)
         remaining_bits = 64 - len(opcode_bin) - len(reg_bin) - len(addr_bin) # Remaining bits
@@ -585,7 +654,7 @@ class PSAssembler:
         Returns:
             str: Binary string of full word/line
         """
-        opcode_bin = self._opcode_table[op]
+        opcode_bin = self._opcode[op]
         reg_bin = format(rx, 'b').zfill(5)
         arg_bin = format(arg, 'b').zfill(40)
         remaining_bits = 64 - len(opcode_bin) - len(reg_bin) - len(arg_bin) # Remaining bits
@@ -602,7 +671,7 @@ class PSAssembler:
         Returns:
             str: Binary string of full word/line
         """
-        opcode_bin = self._opcode_table[op]
+        opcode_bin = self._opcode[op]
         arg_bin = format(arg, 'b').zfill(40)
         remaining_bits = 64 - len(opcode_bin) - len(arg_bin) # Remaining bits
         remainder = '0'.zfill(remaining_bits) 
