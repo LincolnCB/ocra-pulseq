@@ -112,7 +112,7 @@ class PSAssembler:
         self._grad_durations = {} # us
 
         self.tx_arr = np.zeros(0, dtype=np.complex64)
-        self.gr_arr = [np.zeros(0), np.zeros(0), np.zeros(0)] # x, y, z
+        self.grad_arr = [np.zeros(0), np.zeros(0), np.zeros(0)] # x, y, z
 
         self.tx_bytes = bytes()
         self.grad_bytes = [bytes(), bytes(), bytes()] # x, y, z
@@ -144,15 +144,17 @@ class PSAssembler:
         self._reg_nums = {}
 
     # Wrapper for full assembly
-    def assemble(self, pulseq_file, reset=True):
+    def assemble(self, pulseq_file, byte_format=True):
         """
         Assemble OCRA machine code from PulSeq .seq file
 
         Args:
             pulseq_file (str): PulSeq file to assemble from
+            byte_format (bool): Default True -- Return transmit and gradient data in bytes, rather than numpy.ndarray
         
         Returns:
-            tuple: Transmit bytes (bytes); list of gradient bytes (list) (bytes); command bytes (bytes); expected RX readout count (int)
+            tuple: Transmit data (bytes or numpy.ndarray); list of gradient data (list) (bytes or numpy.ndarray);
+                 command bytes (bytes); dictionary of final outputs (dict)
         """
         self._logger.info(f'Assembling ' + pulseq_file)
         if self.is_assembled:
@@ -163,7 +165,11 @@ class PSAssembler:
         self._compile_grad_data()
         self._compile_instructions()
         self.is_assembled = True
-        return (self.tx_bytes, self.grad_bytes, self.command_bytes, self.readout_number)
+        output_dict = {'readout_number' : self.readout_number, 'tx_t' : self._tx_t}
+        if byte_format:
+            return (self.tx_bytes, self.grad_bytes, self.command_bytes, output_dict)
+        else:
+            return (self.tx_arr, self.grad_arr, self.command_bytes, output_dict)
 
     # Return time-based pulse sequence arrays, good to plot
     def sequence(self):
@@ -204,7 +210,7 @@ class PSAssembler:
                 for i in range(3):
                     for gr_d in range(grad_divs):
                         output_array[1 + i, start_div + gr_d * self._grad_div : start_div + (gr_d + 1) * self._grad_div] \
-                            = self.gr_arr[i][off + gr_d]
+                            = self.grad_arr[i][off + gr_d]
             if not gate & self._gate_bits['RX_PULSE']:
                 output_array[4, start_div:end_div] = 1
 
@@ -417,12 +423,12 @@ class PSAssembler:
         self._logger.info('Converting to bytes...')
 
         # store floating-point arrays
-        self.gr_arr = [np.array(k) for k in grad_data]
+        self.grad_arr = [np.array(k) for k in grad_data]
 
         for i in range(3):
             temp_bytearray = bytearray(4 * curr_offset) # 32 bits per entry per channel
 
-            gr = np.round((2**15 - 1) * self.gr_arr[i]).astype(np.uint16) # TODO: DAC has 2 more unused bits -- could implement. 
+            gr = np.round((2**15 - 1) * self.grad_arr[i]).astype(np.uint16) # TODO: DAC has 2 more unused bits -- could implement. 
 
             # Formatted to be sent to DAC
             temp_bytearray[::4] = ((gr & 0xf) << 4).astype(np.uint8).tobytes()
