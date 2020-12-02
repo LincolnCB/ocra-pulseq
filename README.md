@@ -9,7 +9,7 @@ Current OCRA software uses hand-written machine code to function -- this limits 
 
 After initializing, run `PSAssembler.assemble("[filepath]")` to return a list of:
 
-`[tx_bytes, [gx_bytes, gy_bytes, gz_bytes], command_bytes, readout_count]`
+`[tx_bytes, [gx_bytes, gy_bytes, gz_bytes], command_bytes, output_dict]`
 
 You can pass these to existing OCRA servers, such as [MaRCoS](https://github.com/vnegnev/marcos_extras/wiki/setting_marcos_up)
 
