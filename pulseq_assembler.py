@@ -165,7 +165,7 @@ class PSAssembler:
         self._compile_grad_data()
         self._compile_instructions()
         self.is_assembled = True
-        output_dict = {'readout_number' : self.readout_number, 'tx_t' : self._tx_t}
+        output_dict = {'readout_number' : self.readout_number, 'tx_t' : self._tx_t, 'rx_t' : self._rx_t}
         if byte_format:
             return (self.tx_bytes, self.grad_bytes, self.command_bytes, output_dict)
         else:
