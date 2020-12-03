@@ -172,7 +172,7 @@ class PSAssembler:
             return (self.tx_arr, self.grad_arr, self.command_bytes, output_dict)
 
     # Return time-based pulse sequence arrays, good to plot
-    def sequence(self):
+    def sequence(self, start=0, end=-1, clk_divs=1):
         """
         Simplifies assembled sequence, returning usable time sequence arrays. Requires assembled file. 
 
@@ -183,33 +183,46 @@ class PSAssembler:
         self._error_if(not self.is_assembled, f'Requires assembled sequence.')
         self._logger.info('Compiling sequence...')
         PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
-        
-
         end_time = np.sum(PR_durations)
-        time_axis = np.linspace(0, end_time, num=int(end_time / self._clk_t) + 1)
+        
+        if end > 0 and end > start and start > 0 and start < end_time:
+            end = min(end, end_time)
+        else:
+            end = end_time
+            start = 0
 
-        output_array = np.zeros((5, int(end_time / self._clk_t) + 1), dtype=np.complex64)
+        self._error_if(int(clk_divs) != clk_divs or clk_divs < 1, 'Need a positive integer for clk_divs')
+        
+        time_axis = np.linspace(start, end, num=int((end - start) / (self._clk_t * clk_divs)) + 1)
+
+        output_array = np.zeros((5, int((end - start) / (self._clk_t * clk_divs)) + 1), dtype=np.complex64)
 
         start_div = end_div = 0
         for n in range(len(PR_durations)):
-            end_div = int(start_div + PR_durations[n] / self._clk_t)
+            # Cap execution at set boundaries
+            if start_div >= int((end - start) / (self._clk_t * clk_divs)):
+                break
+
+            end_div = int(start_div + PR_durations[n] / (self._clk_t * clk_divs))
+            if end_div * (self._clk_t * clk_divs) > end - start:
+                end_div = int((end - start) / (self._clk_t * clk_divs))
+
             gate = PR_gates[n]
             if TX_offsets[n] != -1:
                 # compile tx
                 off = TX_offsets[n]
-                tx_divs = int((end_div - start_div) / self._tx_div)
+                tx_divs = int((end_div - start_div) / (self._tx_div / clk_divs))
                 for tx_d in range(tx_divs):
-                    output_array[0, start_div + tx_d * self._tx_div : start_div + (tx_d + 1) * self._tx_div] \
+                    output_array[0, start_div + int(tx_d * self._tx_div / clk_divs) : start_div + int((tx_d + 1) * self._tx_div / clk_divs)] \
                         = self.tx_arr[off + tx_d]
                 
             if GRAD_offsets[n] != -1:
                 # compile grad
                 off = GRAD_offsets[n]
-                
-                grad_divs = int((end_div - start_div) / self._grad_div)
+                grad_divs = int((end_div - start_div) / (self._grad_div / clk_divs))
                 for i in range(3):
                     for gr_d in range(grad_divs):
-                        output_array[1 + i, start_div + gr_d * self._grad_div : start_div + (gr_d + 1) * self._grad_div] \
+                        output_array[1 + i, start_div + int(gr_d * self._grad_div / clk_divs) : start_div + int((gr_d + 1) * self._grad_div / clk_divs)] \
                             = self.grad_arr[i][off + gr_d]
             if not gate & self._gate_bits['RX_PULSE']:
                 output_array[4, start_div:end_div] = 1
@@ -303,7 +316,10 @@ class PSAssembler:
                 f'Dwell time ({dwell}) rounded to {self._rx_t}, multiple of clk_t ({self._clk_t})')
         
         self._logger.info('PulSeq file loaded')
-        
+    
+    # Compilation into data formats
+    #region
+
     # Compile tx events into bytes
     def _compile_tx_data(self):
         """
@@ -628,8 +644,10 @@ class PSAssembler:
 
         # Return durations for each PR and leading edge values
         return (PR_durations, gates[:-1], tx_addr[:-1], grad_addr[:-1])
-           
+    #endregion
+
     # Command byte formats (A, B, C)
+    #region
     def _format_A(self, op, rx, addr):
         """
         Write command bytes in format A: 6 bits opcode, filler bits, 5 bits register, 32 bits address
@@ -682,6 +700,10 @@ class PSAssembler:
         remaining_bits = 64 - len(opcode_bin) - len(arg_bin) # Remaining bits
         remainder = '0'.zfill(remaining_bits) 
         return opcode_bin + remainder + arg_bin
+    #endregion
+
+    # Helper functions for reading sections
+    #region
 
     # [BLOCKS] <id> <delay> <rf> <gx> <gy> <gz> <adc> <ext>
     def _read_blocks(self, f):
@@ -981,6 +1003,10 @@ class PSAssembler:
         
         return line.rstrip('\n').strip().replace(',','')
     
+    #endregion
+    
+    # Error and warnings
+    #region
     # For crashing and logging errors (may change behavior)
     def _error_if(self, err_condition, message):
         """
@@ -1003,7 +1029,7 @@ class PSAssembler:
             message (str): Message to accompany warning in log. 
         """
         if warn_condition: self._logger.warning(message)
-
+    #endregion
 
 # Sample usage
 if __name__ == '__main__':
