@@ -41,3 +41,5 @@ You can pass these to existing OCRA servers, such as [MaRCoS](https://github.com
 
 `addresses_per_grad_sample` (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards.
 
+`rf_delay_preload` (bool): Default False -- If True, turn on TX_GATE whenever a block contains RF
+
