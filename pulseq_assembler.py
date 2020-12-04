@@ -25,7 +25,8 @@ class PSAssembler:
     def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+6,
                  clk_t=7e-3, tx_t=1.001, grad_t=10.003,
                  pulseq_t_match=False, ps_tx_t=1, ps_grad_t=10,
-                 tx_warmup=0, grad_pad=0, adc_pad=0, addresses_per_grad_sample=1):
+                 tx_warmup=0, grad_pad=0, adc_pad=0, addresses_per_grad_sample=1,
+                 rf_delay_preload=False):
         """
         Create PSAssembler object with system parameters.
 
@@ -43,6 +44,7 @@ class PSAssembler:
             grad_pad (int): Default 0 -- Padding zero samples at the end of gradients to prevent maintained gradient levels. PADDING WILL CHANGE TIMING.
             adc_pad (int): Default 0 -- Padding samples in ADC to account for junk in system buffer. PADDING WILL CHANGE TIMING.
             addresses_per_grad_sample (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards.
+            rf_delay_preload (bool): Default False -- If True, turn on TX_GATE whenever a block contains RF
         """
         # Logging
         self._logger = logging.getLogger()
@@ -103,6 +105,7 @@ class PSAssembler:
 
         self._grad_pad = grad_pad
         self._offset_step = addresses_per_grad_sample
+        self._rf_preload = rf_delay_preload
 
         self._tx_offsets = {} # Tx word index (32-bit) by Tx ID
         self._tx_delays = {} # us
@@ -643,6 +646,8 @@ class PSAssembler:
         gates = np.zeros(times.size, dtype=np.uint8)
         for i in range(times.size):
             time = times[i]
+            if self._rf_preload and time < tx_end:
+                gates[i] = gates[i] | self._gate_bits['TX_GATE']
             if time >= tx_start and time < tx_end:
                 gates[i] = gates[i] | self._gate_bits['TX_GATE'] | self._gate_bits['TX_PULSE']
             if time >= grad_start and time < grad_end:
