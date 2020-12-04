@@ -633,11 +633,7 @@ class PSAssembler:
             self.readout_number += adc['num'] + self._adc_pad
 
         # Remove duplicates and confirm min delay from delay event is met. 
-		if rf_id != 0:
-			time_list = list(set([0, tx_start, tx_end, grad_start, grad_end, rx_start, rx_end]))
-		else:
-			time_list = list(set([tx_start, tx_end, grad_start, grad_end, rx_start, rx_end]))
-		
+        time_list = list(set([tx_start, tx_end, grad_start, grad_end, rx_start, rx_end]))
         if delay > max(time_list):
             time_list.append(delay)
         times = np.array(time_list)
@@ -647,10 +643,8 @@ class PSAssembler:
         gates = np.zeros(times.size, dtype=np.uint8)
         for i in range(times.size):
             time = times[i]
-			if rf_id != 0 and time == 0:
-				gates[i] = gates[i] | self._gate_bits['TX_GATE']
             if time >= tx_start and time < tx_end:
-                gates[i] = gates[i] | self._gate_bits['TX_PULSE']
+                gates[i] = gates[i] | self._gate_bits['TX_GATE'] | self._gate_bits['TX_PULSE']
             if time >= grad_start and time < grad_end:
                 gates[i] = gates[i] | self._gate_bits['GRAD_PULSE']
             if time < rx_start or time >= rx_end:
