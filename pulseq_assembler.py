@@ -635,7 +635,7 @@ class PSAssembler:
         # Remove duplicates and confirm min delay from delay event is met. 
 		if rf_id != 0:
 			time_list = list(set([0, tx_start, tx_end, grad_start, grad_end, rx_start, rx_end]))
-		else
+		else:
 			time_list = list(set([tx_start, tx_end, grad_start, grad_end, rx_start, rx_end]))
 		
         if delay > max(time_list):
