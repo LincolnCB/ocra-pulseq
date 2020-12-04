@@ -23,26 +23,26 @@ class PSAssembler:
     """
 
     def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+6,
-                 clk_t=0.1, tx_t=1, grad_t=1,
-                 pulseq_t_match=True, ps_tx_t=1, ps_grad_t=1,
+                 clk_t=7e-3, tx_t=1.001, grad_t=10.003,
+                 pulseq_t_match=False, ps_tx_t=1, ps_grad_t=10,
                  tx_warmup=0, grad_pad=0, adc_pad=0, addresses_per_grad_sample=1):
         """
         Create PSAssembler object with system parameters.
 
         Args:
-            rf_center (int): RF center (local oscillator frequency) in Hz
-            rf_amp_max (int): RF amplitude max in Hz
-            grad_max (int): Gradient max in Hz/m
-            clk_t (float): Clock period in us
-            tx_t (float): Transmit raster period in us
-            grad_t (float): Gradient raster period in us
-            pulseq_t_match (bool): Set to False if PulSeq file transmit and gradient raster times do not match OCRA transmit and raster times.
-            ps_tx_t (float): PulSeq transmit raster period in us, if pulseq_t_match is False
-            ps_grad_t (float): PulSeq gradient raster period in us, if pulseq_t_match is False
-            tx_warmup (float): Default 0 -- Delay at the beginning of RF to give TR warmup in us
-            grad_pad (int): Default 0 -- Padding zeros at the end of gradients to prevent maintained gradient levels
-            adc_pad (int): Default 0 -- Padding samples in ADC to account for junk in system buffer
-            addresses_per_grad_sample (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards
+            rf_center (int): RF center (local oscillator frequency) in Hz.
+            rf_amp_max (int): Default 5e+3 -- System RF amplitude max in Hz.
+            grad_max (int): Default 1e+6 -- System gradient max in Hz/m.
+            clk_t (float): Default 7e-3 -- System clock period in us.
+            tx_t (float): Default 1.001 -- Transmit raster period in us.
+            grad_t (float): Default 10.003 -- Gradient raster period in us.
+            pulseq_t_match (bool): Default False -- If PulSeq file transmit and gradient raster times match OCRA transmit and raster times.
+            ps_tx_t (float): Default 1 -- PulSeq transmit raster period in us. Used only if pulseq_t_match is False.
+            ps_grad_t (float): Default 10 -- PulSeq gradient raster period in us. Used only if pulseq_t_match is False.
+            tx_warmup (float): Default 0 -- Padding delay at the beginning of RF to give TR warmup in us. PADDING WILL CHANGE TIMING.
+            grad_pad (int): Default 0 -- Padding zero samples at the end of gradients to prevent maintained gradient levels. PADDING WILL CHANGE TIMING.
+            adc_pad (int): Default 0 -- Padding samples in ADC to account for junk in system buffer. PADDING WILL CHANGE TIMING.
+            addresses_per_grad_sample (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards.
         """
         # Logging
         self._logger = logging.getLogger()
@@ -171,66 +171,87 @@ class PSAssembler:
         else:
             return (self.tx_arr, self.grad_arr, self.command_bytes, output_dict)
 
-    # Return time-based pulse sequence arrays, good to plot
+    # Return time-based pulse sequence arrays, good to plot -- BROKEN FOR NOW
     def sequence(self, start=0, end=-1, clk_divs=1):
-        """
-        Simplifies assembled sequence, returning usable time sequence arrays. Requires assembled file. 
+        self._error_if(True, 'Plotting is currently broken -- Use the matlab function to read while generating')
+    #region
+    #     """
+    #     Simplifies assembled sequence, returning usable time sequence arrays. Requires assembled file. 
 
-        Returns:
-            numpy.ndarray: 1 x T time array (x-axis), in us. 
-            numpy.ndarray: 5 x T array, of RF, GX, GY, GZ, ADC, normalized to 1 at respective maxes.
-        """
-        self._error_if(not self.is_assembled, f'Requires assembled sequence.')
-        self._logger.info('Compiling sequence...')
-        PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
-        end_time = np.sum(PR_durations)
+    #     Returns:
+    #         numpy.ndarray: 1 x T time array (x-axis), in us. 
+    #         numpy.ndarray: 5 x T array, of RF, GX, GY, GZ, ADC, normalized to 1 at respective maxes.
+    #     """
+    #     self._error_if(not self.is_assembled, f'Requires assembled sequence.')
+    #     self._logger.info('Compiling sequence...')
+    #     PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
+    #     end_time = np.sum(PR_durations)
         
-        if end > 0 and end > start and start > 0 and start < end_time:
-            end = min(end, end_time)
-        else:
-            end = end_time
-            start = 0
+    #     if end > 0 and end > start and start > 0 and start < end_time:
+    #         end = min(end, end_time)
+    #     else:
+    #         end = end_time
+    #         start = 0
 
-        self._error_if(int(clk_divs) != clk_divs or clk_divs < 1, 'Need a positive integer for clk_divs')
+    #     self._error_if(int(clk_divs) != clk_divs or clk_divs < 1, 'Need a positive integer for clk_divs')
         
-        time_axis = np.linspace(start, end, num=int((end - start) / (self._clk_t * clk_divs)) + 1)
+    #     time_axis = np.linspace(start, end, num=int((end - start) / (self._clk_t * clk_divs)) + 1)
 
-        output_array = np.zeros((5, int((end - start) / (self._clk_t * clk_divs)) + 1), dtype=np.complex64)
+    #     output_array = np.zeros((5, int((end - start) / (self._clk_t * clk_divs)) + 1), dtype=np.complex64)
 
-        start_div = end_div = 0
-        for n in range(len(PR_durations)):
-            # Cap execution at set boundaries
-            if start_div >= int((end - start) / (self._clk_t * clk_divs)):
-                break
+    #     start_div = end_div = 0
+    #     for n in range(len(PR_durations)):
+    #         # Cap execution at set boundaries
+    #         if start_div >= int((end - start) / (self._clk_t * clk_divs)):
+    #             break
 
-            end_div = int(start_div + PR_durations[n] / (self._clk_t * clk_divs))
-            if end_div * (self._clk_t * clk_divs) > end - start:
-                end_div = int((end - start) / (self._clk_t * clk_divs))
+    #         end_div = int(start_div + PR_durations[n] / (self._clk_t * clk_divs))
+    #         if end_div * (self._clk_t * clk_divs) > end - start:
+    #             end_div = int((end - start) / (self._clk_t * clk_divs))
 
-            gate = PR_gates[n]
-            if TX_offsets[n] != -1:
-                # compile tx
-                off = TX_offsets[n]
-                tx_divs = int((end_div - start_div) / (self._tx_div / clk_divs))
-                for tx_d in range(tx_divs):
-                    output_array[0, start_div + int(tx_d * self._tx_div / clk_divs) : start_div + int((tx_d + 1) * self._tx_div / clk_divs)] \
-                        = self.tx_arr[off + tx_d]
+    #         gate = PR_gates[n]
+    #         if TX_offsets[n] != -1:
+    #             # compile tx
+    #             off = TX_offsets[n]
+    #             tx_divs = int((end_div - start_div) / (self._tx_div / clk_divs))
+    #             for tx_d in range(tx_divs):
+    #                 output_array[0, start_div + int(tx_d * self._tx_div / clk_divs) : start_div + int((tx_d + 1) * self._tx_div / clk_divs)] \
+    #                     = self.tx_arr[off + tx_d]
                 
-            if GRAD_offsets[n] != -1:
-                # compile grad
-                off = GRAD_offsets[n]
-                grad_divs = int((end_div - start_div) / (self._grad_div / clk_divs))
-                for i in range(3):
-                    for gr_d in range(grad_divs):
-                        output_array[1 + i, start_div + int(gr_d * self._grad_div / clk_divs) : start_div + int((gr_d + 1) * self._grad_div / clk_divs)] \
-                            = self.grad_arr[i][off + gr_d]
-            if not gate & self._gate_bits['RX_PULSE']:
-                output_array[4, start_div:end_div] = 1
+    #         if GRAD_offsets[n] != -1:
+    #             # compile grad
+    #             off = GRAD_offsets[n]
+    #             grad_divs = int((end_div - start_div) / (self._grad_div / clk_divs))
+    #             for i in range(3):
+    #                 for gr_d in range(grad_divs):
+    #                     output_array[1 + i, start_div + int(gr_d * self._grad_div / clk_divs) : start_div + int((gr_d + 1) * self._grad_div / clk_divs)] \
+    #                         = self.grad_arr[i][off + gr_d]
+    #         if not gate & self._gate_bits['RX_PULSE']:
+    #             output_array[4, start_div:end_div] = 1
 
-            start_div = end_div
+    #         start_div = end_div
 
-        return time_axis, output_array
+    #     return time_axis, output_array
 
+    # def sequence(self, start=0, end=-1, raster_time=-1):
+    #     self._error_if(not self.is_assembled, f'Requires assembled sequence.')
+    #     self._logger.info('Compiling sequence...')
+    #     PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
+    #     sequence_end = np.sum(PR_durations)
+
+    #     if raster_time != -1:
+    #         raster_time = self._clk_t * int(raster_time / self._clk_t)
+    #         self._error_if(raster_time < self._clk_t, 'Raster time lower than one clock cycle')
+    #     else: raster_time = self._clk_t
+
+    #     if end > 0 and end > start and start > 0 and start < sequence_end:
+    #         end = min(end, sequence_end)
+    #         end = int((end - start) / raster_time)
+    #     else:
+    #         end = sequence_end
+    #         start = 0
+    #endregion
+        
     # Open file and read in all sections into class storage
     def _read_pulseq(self, pulseq_file):
         """

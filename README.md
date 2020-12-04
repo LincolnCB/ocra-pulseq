@@ -15,29 +15,29 @@ You can pass these to existing OCRA servers, such as [MaRCoS](https://github.com
 
 # Initialization Parameters
 
-`rf_center` (int): RF center (local oscillator frequency) in Hz
+`rf_center` (int): RF center (local oscillator frequency) in Hz.
 
-`rf_amp_max` (int): RF amplitude max in Hz -- used to set the fractional amplitude from PulSeq's Hz amplitude
+`rf_amp_max` (int): Default 5e+3 -- System RF amplitude max in Hz.
 
-`grad_max` (int): Gradient max in Hz/m -- used to set the fractional amplitude from PulSeq's Hz/m amplitude
+`grad_max` (int): Default 1e+6 -- System gradient max in Hz/m.
 
-`clk_t` (float): Hardware clock period in us
+`clk_t` (float): Default 7e-3 -- System clock period in us.
 
-`tx_t` (float): Transmit raster period in us -- should be a multiple of clk_t, will round otherwise
+`tx_t` (float): Default 1.001 -- Transmit raster period in us.
 
-`grad_t` (float): Gradient raster period in us -- should be a multiple of clk_t, will round otherwise
+`grad_t` (float): Default 10.003 -- Gradient raster period in us.
 
-`pulseq_t_match` (bool): Default True -- Set to False if PulSeq file transmit and gradient raster times do not match OCRA transmit and raster times.
+`pulseq_t_match` (bool): Default False -- If PulSeq file transmit and gradient raster times match OCRA transmit and raster times.
 
-`ps_tx_t` (float): PulSeq transmit raster period in us, if pulseq_t_match is False
+`ps_tx_t` (float): Default 1 -- PulSeq transmit raster period in us. Used only if pulseq_t_match is False.
 
-`ps_grad_t` (float): PulSeq gradient raster period in us, if pulseq_t_match is False
+`ps_grad_t` (float): Default 10 -- PulSeq gradient raster period in us. Used only if pulseq_t_match is False.
 
-`tx_warmup` (float): Default 0 -- Delay at the beginning of RF to give TR warmup in us. Padding will change timing
+`tx_warmup` (float): Default 0 -- Padding delay at the beginning of RF to give TR warmup in us. PADDING WILL CHANGE TIMING.
 
-`grad_pad` (int): Default 0 -- Padding zero samples at the end of gradients to prevent maintained gradient levels. Padding will change timing
+`grad_pad` (int): Default 0 -- Padding zero samples at the end of gradients to prevent maintained gradient levels. PADDING WILL CHANGE TIMING.
 
-`adc_pad` (int): Default 0 -- Padding samples in ADC to account for junk in system buffer. Padding will change timing
+`adc_pad` (int): Default 0 -- Padding samples in ADC to account for junk in system buffer. PADDING WILL CHANGE TIMING.
 
-`addresses_per_grad_sample` (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards with byte interleaving
+`addresses_per_grad_sample` (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards.
 
