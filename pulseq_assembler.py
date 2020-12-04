@@ -636,7 +636,7 @@ class PSAssembler:
             self.readout_number += adc['num'] + self._adc_pad
 
         # Remove duplicates and confirm min delay from delay event is met. 
-        time_list = list(set([tx_start, tx_end, grad_start, grad_end, rx_start, rx_end]))
+        time_list = list(set([tx_start, tx_end, grad_start, grad_end, rx_start, rx_end, 0]))
         if delay > max(time_list):
             time_list.append(delay)
         times = np.array(time_list)
