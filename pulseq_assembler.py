@@ -175,8 +175,6 @@ class PSAssembler:
             return (self.tx_arr, self.grad_arr, self.command_bytes, output_dict)
 
     # Return time-based pulse sequence arrays, good to plot -- BROKEN FOR NOW
-    def sequence(self, start=0, end=-1, clk_divs=1):
-        self._error_if(True, 'Plotting is currently broken -- Use the matlab function to read while generating')
     #region
     #     """
     #     Simplifies assembled sequence, returning usable time sequence arrays. Requires assembled file. 
@@ -236,23 +234,59 @@ class PSAssembler:
 
     #     return time_axis, output_array
 
-    # def sequence(self, start=0, end=-1, raster_time=-1):
-    #     self._error_if(not self.is_assembled, f'Requires assembled sequence.')
-    #     self._logger.info('Compiling sequence...')
-    #     PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
-    #     sequence_end = np.sum(PR_durations)
+    def sequence(self, start=0, end=-1, raster_time=-1):
+        self._warning_if(True, 'Plotting is currently broken -- Use the matlab function to read while generating')
+        self._error_if(not self.is_assembled, f'Requires assembled sequence.')
+        self._logger.info('Compiling sequence...')
+        PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
+        sequence_end = np.sum(PR_durations)
 
-    #     if raster_time != -1:
-    #         raster_time = self._clk_t * int(raster_time / self._clk_t)
-    #         self._error_if(raster_time < self._clk_t, 'Raster time lower than one clock cycle')
-    #     else: raster_time = self._clk_t
+        if raster_time != -1:
+            raster_time = self._clk_t * int(raster_time / self._clk_t)
+            self._error_if(raster_time < self._clk_t, 'Raster time lower than one clock cycle')
+        else: raster_time = self._clk_t
 
-    #     if end > 0 and end > start and start > 0 and start < sequence_end:
-    #         end = min(end, sequence_end)
-    #         end = int((end - start) / raster_time)
-    #     else:
-    #         end = sequence_end
-    #         start = 0
+        if end > 0 and end > start and start > 0 and start < sequence_end:
+            end = min(end, sequence_end)
+        else:
+            end = sequence_end
+            start = 0
+        count = int((end - start) / raster_time) + 1
+        end = (count - 1) * raster_time + start
+        
+        time_axis = np.linspace(start, end, num=count)
+        output_array = np.zeros((5, count), dtype=np.complex64)
+
+        pulse_start = 0
+        idx = 0
+        for n in range(len(PR_durations)):
+            pulse_end = pulse_start + PR_durations[n]
+            pulse_end = min(pulse_end, end)
+            if pulse_end < start:
+                pulse_start = pulse_end
+                continue
+
+            next_idx = 0
+            
+            gate = PR_gates[n]
+
+            if TX_offsets[n] != -1:
+                pass
+            if GRAD_offsets[n] != -1:
+                pass
+            
+            # Fill out arrays
+
+            if not gate & self._gate_bits['RX_PULSE']:
+                output_array[4, idx:next_idx] = 1
+
+            if pulse_end == end:
+                break
+
+        return time_axis, output_array
+
+
+
     #endregion
         
     # Open file and read in all sections into class storage
@@ -577,7 +611,7 @@ class PSAssembler:
         Encode all blocks into sequential gate changes.
 
         Returns:
-            Aligned lists of durations, gates, TX and GRAD offsets for sequential instructions. 
+            Aligned lists of durations (us), gates, TX and GRAD offsets for sequential instructions. 
         """
         # Encode all blocks
         PR_durations = []
