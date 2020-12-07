@@ -35,7 +35,7 @@ You can pass these to existing OCRA servers, such as [MaRCoS](https://github.com
 
 `tx_warmup` (float): Default 0 -- Padding delay at the beginning of RF to give TR warmup in us. PADDING WILL CHANGE TIMING.
 
-`grad_pad` (int): Default 0 -- Padding zero samples at the end of gradients to prevent maintained gradient levels. PADDING WILL CHANGE TIMING.
+`grad_pad` (int): Default 0 -- Padding zero samples at the end of gradients to prevent maintained gradient levels. PADDING WILL DISTORT GRADIENTS TO KEEP LENGTH
 
 `adc_pad` (int): Default 0 -- Padding samples in ADC to account for junk in system buffer. PADDING WILL CHANGE TIMING.
 

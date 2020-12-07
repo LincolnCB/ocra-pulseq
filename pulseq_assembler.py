@@ -665,7 +665,7 @@ class PSAssembler:
         if adc_id:
             adc = self._adc_events[adc_id]
             rx_start = adc['delay']
-            rx_end = self._rx_t * adc['num']
+            rx_end = self._rx_t * adc['num'] + adc['delay']
             rx_end += self._rx_t * self._adc_pad # Add padding
             self.readout_number += adc['num'] + self._adc_pad
 
