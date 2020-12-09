@@ -472,6 +472,8 @@ class PSAssembler:
             # Array lengths (unitless)
             grad_ps_len = max([len(grad_shapes[i]) + grad_delay_lens[i] for i in range(3)]) + self._grad_pad
             grad_len = int(grad_ps_len * self._ps_grad_t / self._grad_t)
+            grad_ps_no_pad = max([len(grad_shapes[i]) + grad_delay_lens[i] for i in range(3)]) 
+            grad_len_no_pad = int(grad_ps_no_pad * self._ps_grad_t / self._grad_t)
 
             # Leading edge time arrays for interpolation
             x_ps = np.linspace(0, (grad_ps_len - 1) * self._ps_grad_t, num=grad_ps_len)
@@ -488,8 +490,8 @@ class PSAssembler:
                     self._logger.warning(f'Magnitude of gradient event {grad_ids[i]} was too large, 16-bit signed overflow will occur')
 
             # Track offsets for concatenated grad events
-            self._grad_offsets[grad_ids] = curr_offset
-            self._grad_durations[grad_ids] = grad_len * self._grad_t
+            self._grad_offsets[grad_ids] = curr_offset * 3
+            self._grad_durations[grad_ids] = grad_len_no_pad * self._grad_t
             self._grad_delays[grad_ids] = min_delay
             curr_offset += grad_len * self._offset_step
                 
@@ -585,7 +587,8 @@ class PSAssembler:
         # Write instructions
         for i in range(len(PR_clk_delays)):
             if TX_offsets[i] != -1: cmds.append(self._format_B('TXOFFSET', 0, TX_offsets[i]))
-            if GRAD_offsets[i] != -1: cmds.append(self._format_B('GRADOFFSET', 0, GRAD_offsets[i]))
+            if GRAD_offsets[i] != -1: 
+                cmds.append(self._format_B('GRADOFFSET', 0, GRAD_offsets[i]))
             cmds.append(self._format_B('PR', PR_registers[i], PR_clk_delays[i]))
 
         # Halt
