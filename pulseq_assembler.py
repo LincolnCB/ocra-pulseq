@@ -180,14 +180,14 @@ class PSAssembler:
             return (self.tx_arr, self.grad_arr, self.command_bytes, output_dict)
 
     # Return time-based pulse sequence arrays, good to plot
-    def sequence(self, start=0, end=-1, raster_t=-1, interp=False):
+    def sequence(self, start=0, end=-1, raster_t=1, interp=False):
         """
         Compile sequence into numpy arrays by time for visualization. All times will be rounded to a clock cycle.
 
         Args:
             start (float): Default 0 -- Start time of output in us.
             end (float): Default -1, sequence end -- End time of output in us
-            raster_t (float): Default -1, clk_t -- Raster time in us
+            raster_t (float): Default 1 -- Raster time in us. -1 for clk_t
             interp (bool): Default False -- If True, interpolate between TX/Grad sample points
 
         Returns:
