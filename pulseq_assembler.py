@@ -246,21 +246,22 @@ class PSAssembler:
                 tx = self.tx_arr[tx_idx:tx_idx + tx_steps]
                 if not interp:
                     x2 = np.floor(x2 / self._tx_t) * self._tx_t
-                output_array[0, idx:next_idx] = np.interp(x2, x1, tx)
+                else:
+                    output_array[0, idx:next_idx] = np.interp(x2, x1, tx)
                 tx_idx += tx_steps
 
             if gate & self._gate_bits['GRAD_PULSE']:
                 grad_steps = int(dur / self._grad_t + ROUNDING)
                 x1 = np.linspace(0, dur, num=grad_steps, endpoint=False)
                 x2 = np.linspace(0, dur, num=next_idx - idx, endpoint=False)
-                if len(x1) == 0 and idx > 0:
-                    for i in range(3):
-                        output_array[i+1, idx:next_idx] = output_array[i+1, idx-1]
                 if not interp:
                     x2 = np.floor(x2 / self._grad_t) * self._grad_t
                 for i in range(3):
-                    grad = self.grad_arr[i][grad_idx:grad_idx + grad_steps]
-                    output_array[i+1, idx:next_idx] = np.interp(x2, x1, grad)
+                    if len(x1) == 0 and idx > 0:
+                        output_array[i+1, idx:next_idx] = output_array[, idx-1]
+                    else:
+                        grad = self.grad_arr[i][grad_idx:grad_idx + grad_steps]
+                        output_array[i+1, idx:next_idx] = np.interp(x2, x1, grad)
                 grad_idx += grad_steps
 
             if not (gate & self._gate_bits['RX_PULSE']):
