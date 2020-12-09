@@ -514,7 +514,7 @@ class PSAssembler:
         for grad_id, grad in self._grad_events.items():
             if len(grad) == 5:
                 rise = np.flip(np.linspace(1, 0, num=int(grad['rise'] / self._ps_grad_t + ROUNDING), endpoint=False))
-                flat = np.ones(int(grad['flat'] / self._ps_grad_t) + ROUNDING)
+                flat = np.ones(int(grad['flat'] / self._ps_grad_t + ROUNDING))
                 fall = np.flip(np.linspace(0, 1, num=int(grad['fall'] / self._ps_grad_t + ROUNDING), endpoint=False))
                 shape = np.concatenate((rise, flat, fall))
                 
