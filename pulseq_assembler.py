@@ -502,10 +502,10 @@ class PSAssembler:
                     self._logger.warning(f'Magnitude of gradient event {grad_ids[i]} was too large, 16-bit signed overflow will occur')
 
             # Track offsets for concatenated grad events
-            self._grad_offsets[grad_ids] = curr_offset
+            self._grad_offsets[grad_ids] = curr_offset * self._offset_step
             self._grad_durations[grad_ids] = grad_len * self._grad_t
             self._grad_delays[grad_ids] = min_delay
-            curr_offset += grad_len * self._offset_step
+            curr_offset += grad_len
                 
         # Convert full data array to bytes
         self._logger.info('Converting to bytes...')
