@@ -26,7 +26,9 @@ class PSAssembler:
                  clk_t=7e-3, tx_t=1.001, grad_t=10.003,
                  pulseq_t_match=False, ps_tx_t=1, ps_grad_t=10,
                  tx_warmup=0, grad_pad=0, adc_pad=0, addresses_per_grad_sample=1,
-                 rf_delay_preload=False):
+                 rf_delay_preload=False, 
+                 rf_pad_type='ext', grad_pad_type='ext',
+                 fix_grad_length=True):
         """
         Create PSAssembler object with system parameters.
 
@@ -45,6 +47,7 @@ class PSAssembler:
             adc_pad (int): Default 0 -- Padding samples in ADC to account for junk in system buffer. PADDING WILL CHANGE TIMING.
             addresses_per_grad_sample (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards.
             rf_delay_preload (bool): Default False -- If True, turn on TX_GATE whenever a block contains RF
+            fix_grad_length (bool): Default True -- If True, fix the length of the gradient and distort when padded instead of extending.
         """
         # Logging
         self._logger = logging.getLogger()
@@ -106,6 +109,7 @@ class PSAssembler:
         self._grad_pad = grad_pad
         self._offset_step = addresses_per_grad_sample
         self._rf_preload = rf_delay_preload
+        self._fix_grad_len = fix_grad_length
 
         self._tx_offsets = {} # Tx word index (32-bit) by Tx ID
         self._tx_delays = {} # us
@@ -234,54 +238,84 @@ class PSAssembler:
 
     #     return time_axis, output_array
 
-    def sequence(self, start=0, end=-1, raster_time=-1):
+    def sequence(self, start=0, end=-1, raster_t=-1):
         self._warning_if(True, 'Plotting is currently broken -- Use the matlab function to read while generating')
         self._error_if(not self.is_assembled, f'Requires assembled sequence.')
         self._logger.info('Compiling sequence...')
         PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
         sequence_end = np.sum(PR_durations)
 
-        if raster_time != -1:
-            raster_time = self._clk_t * int(raster_time / self._clk_t)
-            self._error_if(raster_time < self._clk_t, 'Raster time lower than one clock cycle')
-        else: raster_time = self._clk_t
+        if raster_t != -1:
+            raster_t = self._clk_t * int(raster_t / self._clk_t)
+            self._error_if(raster_t < self._clk_t, 'Raster time lower than one clock cycle')
+        else: raster_t = self._clk_t
+        raster_divs = int(raster_t / self._clk_t)
 
         if end > 0 and end > start and start > 0 and start < sequence_end:
             end = min(end, sequence_end)
         else:
             end = sequence_end
             start = 0
-        count = int((end - start) / raster_time) + 1
-        end = (count - 1) * raster_time + start
+        count = int((end - start) / raster_t) + 1
+        end = (count - 1) * raster_t + start
         
         time_axis = np.linspace(start, end, num=count)
         output_array = np.zeros((5, count), dtype=np.complex64)
 
         pulse_start = 0
         idx = 0
+        next_idx = 0
+        tx_idx = 0
+        grad_idx = 0
         for n in range(len(PR_durations)):
-            pulse_end = pulse_start + PR_durations[n]
+            dur = PR_durations[n]
+            pulse_end = pulse_start + dur
             pulse_end = min(pulse_end, end)
             if pulse_end < start:
                 pulse_start = pulse_end
                 continue
 
-            next_idx = 0
+            if pulse_start < start:
+                self._warning_if(True, 'Starting at the first block after start time') # TODO maybe make this better
+                pulse_start = pulse_end
+                continue
+
+            next_idx += int(dur / raster_t)
+
+            if TX_offsets[n] != -1:
+                tx_idx = TX_offsets[n]
+            if GRAD_offsets[n] != -1:
+                grad_idx = GRAD_offsets[n]
             
             gate = PR_gates[n]
 
-            if TX_offsets[n] != -1:
-                pass
-            if GRAD_offsets[n] != -1:
-                pass
-            
-            # Fill out arrays
+            # Fill out arrays TODO
 
-            if not gate & self._gate_bits['RX_PULSE']:
+            if gate & self._gate_bits['TX_PULSE']:
+                tx_steps = int(dur / self._tx_t)
+                tx = self.tx_arr[tx_idx:tx_idx + tx_steps]
+                x1 = np.linspace(0, dur, num=tx_steps, endpoint=False)
+                x2 = np.linspace(0, dur, num=next_idx - idx, endpoint=False)
+                output_array[0, idx:next_idx] = np.interp(x2, x1, tx)
+                tx_idx += tx_steps
+
+            if gate & self._gate_bits['GRAD_PULSE']:
+                grad_steps = int(dur / self._grad_t)
+                for i in range(3):
+                    grad = self.grad_arr[i][grad_idx:grad_idx + grad_steps]
+                    x1 = np.linspace(0, dur, num=grad_steps, endpoint=False)
+                    x2 = np.linspace(0, dur, num=next_idx - idx, endpoint=False)
+                    output_array[i+1, idx:next_idx] = np.interp(x2, x1, grad)
+                grad_idx += grad_steps
+
+            if not (gate & self._gate_bits['RX_PULSE']):
                 output_array[4, idx:next_idx] = 1
 
             if pulse_end == end:
                 break
+
+            pulse_start = pulse_end
+            idx = next_idx
 
         return time_axis, output_array
 
@@ -471,7 +505,10 @@ class PSAssembler:
 
             # Array lengths (unitless)
             grad_ps_len = max([len(grad_shapes[i]) + grad_delay_lens[i] for i in range(3)]) + self._grad_pad
-            grad_len = int(grad_ps_len * self._ps_grad_t / self._grad_t)
+            if self._fix_grad_len:
+                grad_len = int((grad_ps_len - self._grad_pad) * self._ps_grad_t / self._grad_t)
+            else:
+                grad_len = int(grad_ps_len * self._ps_grad_t / self._grad_t)
 
             # Leading edge time arrays for interpolation
             x_ps = np.linspace(0, (grad_ps_len - 1) * self._ps_grad_t, num=grad_ps_len)
@@ -1094,8 +1131,8 @@ class PSAssembler:
 # Sample usage
 if __name__ == '__main__':
     ps = PSAssembler()
-    inp_file = 'test_files/test4.seq'
-    tx_bytes, grad_bytes_list, command_bytes, output_count = ps.assemble(inp_file)
+    inp_file = 'test_files/test_loopback.seq'
+    tx_bytes, grad_bytes_list, command_bytes, params = ps.assemble(inp_file)
     grad_x_bytes, grad_y_bytes, grad_z_bytes = grad_bytes_list
     print("Completed successfully")
             
