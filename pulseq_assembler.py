@@ -178,67 +178,9 @@ class PSAssembler:
         else:
             return (self.tx_arr, self.grad_arr, self.command_bytes, output_dict)
 
-    # Return time-based pulse sequence arrays, good to plot -- BROKEN FOR NOW
-    #region
-    #     """
-    #     Simplifies assembled sequence, returning usable time sequence arrays. Requires assembled file. 
-
-    #     Returns:
-    #         numpy.ndarray: 1 x T time array (x-axis), in us. 
-    #         numpy.ndarray: 5 x T array, of RF, GX, GY, GZ, ADC, normalized to 1 at respective maxes.
-    #     """
-    #     self._error_if(not self.is_assembled, f'Requires assembled sequence.')
-    #     self._logger.info('Compiling sequence...')
-    #     PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
-    #     end_time = np.sum(PR_durations)
-        
-    #     if end > 0 and end > start and start > 0 and start < end_time:
-    #         end = min(end, end_time)
-    #     else:
-    #         end = end_time
-    #         start = 0
-
-    #     self._error_if(int(clk_divs) != clk_divs or clk_divs < 1, 'Need a positive integer for clk_divs')
-        
-    #     time_axis = np.linspace(start, end, num=int((end - start) / (self._clk_t * clk_divs)) + 1)
-
-    #     output_array = np.zeros((5, int((end - start) / (self._clk_t * clk_divs)) + 1), dtype=np.complex64)
-
-    #     start_div = end_div = 0
-    #     for n in range(len(PR_durations)):
-    #         # Cap execution at set boundaries
-    #         if start_div >= int((end - start) / (self._clk_t * clk_divs)):
-    #             break
-
-    #         end_div = int(start_div + PR_durations[n] / (self._clk_t * clk_divs))
-    #         if end_div * (self._clk_t * clk_divs) > end - start:
-    #             end_div = int((end - start) / (self._clk_t * clk_divs))
-
-    #         gate = PR_gates[n]
-    #         if TX_offsets[n] != -1:
-    #             # compile tx
-    #             off = TX_offsets[n]
-    #             tx_divs = int((end_div - start_div) / (self._tx_div / clk_divs))
-    #             for tx_d in range(tx_divs):
-    #                 output_array[0, start_div + int(tx_d * self._tx_div / clk_divs) : start_div + int((tx_d + 1) * self._tx_div / clk_divs)] \
-    #                     = self.tx_arr[off + tx_d]
-                
-    #         if GRAD_offsets[n] != -1:
-    #             # compile grad
-    #             off = GRAD_offsets[n]
-    #             grad_divs = int((end_div - start_div) / (self._grad_div / clk_divs))
-    #             for i in range(3):
-    #                 for gr_d in range(grad_divs):
-    #                     output_array[1 + i, start_div + int(gr_d * self._grad_div / clk_divs) : start_div + int((gr_d + 1) * self._grad_div / clk_divs)] \
-    #                         = self.grad_arr[i][off + gr_d]
-    #         if not gate & self._gate_bits['RX_PULSE']:
-    #             output_array[4, start_div:end_div] = 1
-
-    #         start_div = end_div
-
-    #     return time_axis, output_array
-
+    # Return time-based pulse sequence arrays, good to plot
     def sequence(self, start=0, end=-1, raster_t=-1):
+        # TODO
         self._warning_if(True, 'Plotting is currently broken -- Use the matlab function to read while generating')
         self._error_if(not self.is_assembled, f'Requires assembled sequence.')
         self._logger.info('Compiling sequence...')
@@ -249,9 +191,9 @@ class PSAssembler:
             raster_t = self._clk_t * int(raster_t / self._clk_t)
             self._error_if(raster_t < self._clk_t, 'Raster time lower than one clock cycle')
         else: raster_t = self._clk_t
-        raster_divs = int(raster_t / self._clk_t)
 
-        if end > 0 and end > start and start > 0 and start < sequence_end:
+        if end > 0 and end > start and start >= 0 and start < sequence_end:
+            start = int(start / self._clk_t) * self._clk_t
             end = min(end, sequence_end)
         else:
             end = sequence_end
@@ -318,10 +260,6 @@ class PSAssembler:
             idx = next_idx
 
         return time_axis, output_array
-
-
-
-    #endregion
         
     # Open file and read in all sections into class storage
     def _read_pulseq(self, pulseq_file):

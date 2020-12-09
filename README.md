@@ -43,3 +43,5 @@ You can pass these to existing OCRA servers, such as [MaRCoS](https://github.com
 
 `rf_delay_preload` (bool): Default False -- If True, turn on TX_GATE whenever a block contains RF
 
+`fix_grad_length` (bool): Default True -- If True, fix the length of the gradient and distort when padded instead of extending.
+
