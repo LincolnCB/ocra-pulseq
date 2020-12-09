@@ -215,6 +215,8 @@ class PSAssembler:
             dur = PR_durations[n]
             pulse_end = pulse_start + dur
             pulse_end = min(pulse_end, end)
+            dur = pulse_start - pulse_end
+            
             if pulse_end < start:
                 pulse_start = pulse_end
                 continue
