@@ -2,9 +2,8 @@
 # pulseq_assembler.py
 # Written by Lincoln Craven-Brightman, based on code by Suma Anand
 
-# TODO: go over timing and timing issues one last time
-# TODO: Docstrings
 # TODO: RASTCSYNC, LITR
+# TODO: Comments
 
 import pdb # Debugging
 import numpy as np
@@ -181,20 +180,37 @@ class PSAssembler:
             return (self.tx_arr, self.grad_arr, self.command_bytes, output_dict)
 
     # Return time-based pulse sequence arrays, good to plot
-    def sequence(self, start=0, end=-1, raster_t=-1, interp=True):
-        # TODO
-        self._warning_if(True, 'Plotting is currently broken -- Use the matlab function to read while generating')
+    def sequence(self, start=0, end=-1, raster_t=-1, interp=False):
+        """
+        Compile sequence into numpy arrays by time for visualization. All times will be rounded to a clock cycle.
+
+        Args:
+            start (float): Default 0 -- Start time of output in us.
+            end (float): Default -1, sequence end -- End time of output in us
+            raster_t (float): Default -1, clk_t -- Raster time in us
+            interp (bool): Default False -- If True, interpolate between TX/Grad sample points
+
+        Returns:
+            list: 1D time array for x-axis (numpy.ndarray); 2D output arrays, where axis 0 gives RF, GX, GY, GZ, ADC (numpy.ndarray)
+        """
+
+        # Parse all blocks
         self._error_if(not self.is_assembled, f'Requires assembled sequence.')
         self._logger.info('Compiling sequence...')
         PR_durations, PR_gates, TX_offsets, GRAD_offsets = self._encode_all_blocks()
         sequence_end = np.sum(PR_durations)
 
+        # Round raster time
         if raster_t != -1:
             raster_t = self._clk_t * int(raster_t / self._clk_t + ROUNDING)
             self._error_if(raster_t < self._clk_t, 'Raster time lower than one clock cycle')
         else: raster_t = self._clk_t
 
-        if end > 0 and end > start and start >= 0 and start < sequence_end:
+        # Round and cap start and end times
+        if start < 0:
+            self._warning_if(True, 'Start is below 0, rounding up')
+            start = 0
+        if end > 0 and end > start and start < sequence_end:
             start = int(start / self._clk_t + ROUNDING) * self._clk_t
             end = min(end, sequence_end)
         else:
@@ -203,24 +219,27 @@ class PSAssembler:
         count = int((end - start) / raster_t + ROUNDING) + 1
         end = (count - 1) * raster_t + start
         
+        # Create arrays
         time_axis = np.linspace(start, end, num=count)
         output_array = np.zeros((5, count), dtype=np.complex64)
 
+        # Loop through gate states
         pulse_start = 0
         idx = 0
         next_idx = 0
         tx_idx = 0
         grad_idx = 0
         for n in range(len(PR_durations)):
+            # Capping durations
             dur = PR_durations[n]
             pulse_end = pulse_start + dur
             pulse_end = min(pulse_end, end)
             dur = pulse_end - pulse_start
 
+            # Confirm timing
             if pulse_end < start:
                 pulse_start = pulse_end
                 continue
-
             if pulse_start < start:
                 self._warning_if(True, 'Starting at the first block after start time') # TODO maybe make this better
                 pulse_start = pulse_end
@@ -228,6 +247,7 @@ class PSAssembler:
 
             next_idx += int(dur / raster_t + ROUNDING)
 
+            # Change offset if needed
             if TX_offsets[n] != -1:
                 tx_idx = TX_offsets[n]
             if GRAD_offsets[n] != -1:
@@ -235,28 +255,31 @@ class PSAssembler:
             
             gate = PR_gates[n]
 
-            # Fill out arrays TODO
-
+            # Sequence TX
             if gate & self._gate_bits['TX_PULSE']:
                 tx_steps = int(dur / self._tx_t + ROUNDING)
                 x1 = np.linspace(0, dur, num=tx_steps, endpoint=False)
-                
                 x2 = np.linspace(0, dur, num=next_idx - idx, endpoint=False)
                 tx = self.tx_arr[tx_idx:tx_idx + tx_steps]
+
                 if not interp:
                     x2 = np.floor(x2 / self._tx_t) * self._tx_t
+
                 if len(x1) == 0 and idx > 0:
                     output_array[0, idx:next_idx] = output_array[0, idx-1]
                 else:
                     output_array[0, idx:next_idx] = np.interp(x2, x1, tx)
                 tx_idx += tx_steps
 
+            # Sequence GRAD
             if gate & self._gate_bits['GRAD_PULSE']:
                 grad_steps = int(dur / self._grad_t + ROUNDING)
                 x1 = np.linspace(0, dur, num=grad_steps, endpoint=False)
                 x2 = np.linspace(0, dur, num=next_idx - idx, endpoint=False)
+
                 if not interp:
                     x2 = np.floor(x2 / self._grad_t) * self._grad_t
+
                 for i in range(3):
                     if len(x1) == 0 and idx > 0:
                         output_array[i+1, idx:next_idx] = output_array[i+1, idx-1]
@@ -265,6 +288,7 @@ class PSAssembler:
                         output_array[i+1, idx:next_idx] = np.interp(x2, x1, grad)
                 grad_idx += grad_steps
 
+            # Sequence ADC
             if not (gate & self._gate_bits['RX_PULSE']):
                 output_array[4, idx:next_idx] = 1
 
@@ -492,7 +516,7 @@ class PSAssembler:
         for i in range(3):
             temp_bytearray = bytearray(4 * curr_offset) # 32 bits per entry per channel
 
-            gr = np.round((2**15 - 1) * self.grad_arr[i]).astype(np.uint16) # TODO: DAC has 2 more unused bits -- could implement. 
+            gr = np.round((2**15 - 1) * self.grad_arr[i]).astype(np.uint16) # TODO: DAC has 2 more unused bits -- could implement (Vlad?). 
 
             # Formatted to be sent to DAC
             temp_bytearray[::4] = ((gr & 0xf) << 4).astype(np.uint8).tobytes()
