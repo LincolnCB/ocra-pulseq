@@ -181,7 +181,7 @@ class PSAssembler:
             return (self.tx_arr, self.grad_arr, self.command_bytes, output_dict)
 
     # Return time-based pulse sequence arrays, good to plot
-    def sequence(self, start=0, end=-1, raster_t=-1):
+    def sequence(self, start=0, end=-1, raster_t=-1, interp=True):
         # TODO
         self._warning_if(True, 'Plotting is currently broken -- Use the matlab function to read while generating')
         self._error_if(not self.is_assembled, f'Requires assembled sequence.')
@@ -237,18 +237,22 @@ class PSAssembler:
 
             if gate & self._gate_bits['TX_PULSE']:
                 tx_steps = int(dur / self._tx_t + ROUNDING)
-                tx = self.tx_arr[tx_idx:tx_idx + tx_steps]
                 x1 = np.linspace(0, dur, num=tx_steps, endpoint=False)
                 x2 = np.linspace(0, dur, num=next_idx - idx, endpoint=False)
+                tx = self.tx_arr[tx_idx:tx_idx + tx_steps]
+                if not interp:
+                    x2 = np.floor(x2 / self._tx_t) * self._tx_t
                 output_array[0, idx:next_idx] = np.interp(x2, x1, tx)
                 tx_idx += tx_steps
 
             if gate & self._gate_bits['GRAD_PULSE']:
                 grad_steps = int(dur / self._grad_t + ROUNDING)
+                x1 = np.linspace(0, dur, num=grad_steps, endpoint=False)
+                x2 = np.linspace(0, dur, num=next_idx - idx, endpoint=False)
+                if not interp:
+                    x2 = np.floor(x2 / self._grad_t) * self._grad_t
                 for i in range(3):
                     grad = self.grad_arr[i][grad_idx:grad_idx + grad_steps]
-                    x1 = np.linspace(0, dur, num=grad_steps, endpoint=False)
-                    x2 = np.linspace(0, dur, num=next_idx - idx, endpoint=False)
                     output_array[i+1, idx:next_idx] = np.interp(x2, x1, grad)
                 grad_idx += grad_steps
 
