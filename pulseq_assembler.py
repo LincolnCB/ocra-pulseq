@@ -240,12 +240,13 @@ class PSAssembler:
             if gate & self._gate_bits['TX_PULSE']:
                 tx_steps = int(dur / self._tx_t + ROUNDING)
                 x1 = np.linspace(0, dur, num=tx_steps, endpoint=False)
-                if len(x1) == 0 and idx > 0:
-                    output_array[0, idx:next_idx] = output_array[0, idx-1]
+                
                 x2 = np.linspace(0, dur, num=next_idx - idx, endpoint=False)
                 tx = self.tx_arr[tx_idx:tx_idx + tx_steps]
                 if not interp:
                     x2 = np.floor(x2 / self._tx_t) * self._tx_t
+                if len(x1) == 0 and idx > 0:
+                    output_array[0, idx:next_idx] = output_array[0, idx-1]
                 else:
                     output_array[0, idx:next_idx] = np.interp(x2, x1, tx)
                 tx_idx += tx_steps
@@ -258,7 +259,7 @@ class PSAssembler:
                     x2 = np.floor(x2 / self._grad_t) * self._grad_t
                 for i in range(3):
                     if len(x1) == 0 and idx > 0:
-                        output_array[i+1, idx:next_idx] = output_array[, idx-1]
+                        output_array[i+1, idx:next_idx] = output_array[i+1, idx-1]
                     else:
                         grad = self.grad_arr[i][grad_idx:grad_idx + grad_steps]
                         output_array[i+1, idx:next_idx] = np.interp(x2, x1, grad)
