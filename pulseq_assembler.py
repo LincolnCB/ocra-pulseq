@@ -11,6 +11,8 @@ import numpy as np
 import logging # For errors
 import struct
 
+ROUNDING = 1e-3
+
 class PSAssembler:
     """
     Assembler object that can assemble a PulSeq file into OCRA machine code. Run PSAssembler.assemble to compile a .seq file into OCRA machine code
@@ -76,17 +78,17 @@ class PSAssembler:
         }
 
         self._clk_t = clk_t # Instruction clock period in us
-        self._tx_div = int(tx_t / self._clk_t) # Clock cycles per tx
+        self._tx_div = int(tx_t / self._clk_t + ROUNDING) # Clock cycles per tx
         self._tx_t = tx_t # Transmit sample period in us
         self._warning_if(self._tx_div * self._clk_t != tx_t, 
             f'tx_t ({tx_t}) rounded to {self._tx_t}, multiple of clk_t ({clk_t})')
-        self._grad_div = int(grad_t / self._clk_t) # Clock cycles per grad
+        self._grad_div = int(grad_t / self._clk_t + ROUNDING) # Clock cycles per grad
         self._grad_t = clk_t * self._grad_div # Gradient sample period in us
         self._warning_if(self._grad_div * self._clk_t != grad_t, 
             f'grad_t ({(grad_t)}) rounded to {self._grad_t}, multiple of clk_t ({clk_t})')
         self._rx_div = None
         self._rx_t = None
-        self._tx_warmup_samples = int(tx_warmup / self._tx_t)
+        self._tx_warmup_samples = int(tx_warmup / self._tx_t + ROUNDING)
         self._warning_if(self._tx_warmup_samples * self._tx_t != tx_warmup, 
             f'tx_warmup ({tx_warmup}) rounded to {self._tx_warmup_samples * self._tx_t}, multiple of tx_t ({self._tx_t})')
         self._error_if(self._tx_warmup_samples < 0, 'Negative tx warmup')
@@ -188,17 +190,17 @@ class PSAssembler:
         sequence_end = np.sum(PR_durations)
 
         if raster_t != -1:
-            raster_t = self._clk_t * int(raster_t / self._clk_t)
+            raster_t = self._clk_t * int(raster_t / self._clk_t + ROUNDING)
             self._error_if(raster_t < self._clk_t, 'Raster time lower than one clock cycle')
         else: raster_t = self._clk_t
 
         if end > 0 and end > start and start >= 0 and start < sequence_end:
-            start = int(start / self._clk_t) * self._clk_t
+            start = int(start / self._clk_t + ROUNDING) * self._clk_t
             end = min(end, sequence_end)
         else:
             end = sequence_end
             start = 0
-        count = int((end - start) / raster_t) + 1
+        count = int((end - start) / raster_t + ROUNDING) + 1
         end = (count - 1) * raster_t + start
         
         time_axis = np.linspace(start, end, num=count)
@@ -222,7 +224,7 @@ class PSAssembler:
                 pulse_start = pulse_end
                 continue
 
-            next_idx += int(dur / raster_t)
+            next_idx += int(dur / raster_t + ROUNDING)
 
             if TX_offsets[n] != -1:
                 tx_idx = TX_offsets[n]
@@ -234,7 +236,7 @@ class PSAssembler:
             # Fill out arrays TODO
 
             if gate & self._gate_bits['TX_PULSE']:
-                tx_steps = int(dur / self._tx_t)
+                tx_steps = int(dur / self._tx_t + ROUNDING)
                 tx = self.tx_arr[tx_idx:tx_idx + tx_steps]
                 x1 = np.linspace(0, dur, num=tx_steps, endpoint=False)
                 x2 = np.linspace(0, dur, num=next_idx - idx, endpoint=False)
@@ -242,7 +244,7 @@ class PSAssembler:
                 tx_idx += tx_steps
 
             if gate & self._gate_bits['GRAD_PULSE']:
-                grad_steps = int(dur / self._grad_t)
+                grad_steps = int(dur / self._grad_t + ROUNDING)
                 for i in range(3):
                     grad = self.grad_arr[i][grad_idx:grad_idx + grad_steps]
                     x1 = np.linspace(0, dur, num=grad_steps, endpoint=False)
@@ -306,10 +308,10 @@ class PSAssembler:
         for events in [self._blocks.values(), self._rf_events.values(), self._grad_events.values(), 
                         self._adc_events.values()]:
             for event in events:
-                self._warning_if(int(event['delay'] / self._clk_t) * self._clk_t != event['delay'],
+                self._warning_if(int(event['delay'] / self._clk_t + ROUNDING) * self._clk_t != event['delay'],
                     f'Delay is not a multiple of clk_t, rounding')
         for delay in self._delay_events.values():
-            self._warning_if(int(delay / self._clk_t) * self._clk_t != delay,
+            self._warning_if(int(delay / self._clk_t + ROUNDING) * self._clk_t != delay,
                 f'Delay is not a multiple of clk_t, rounding')
         
         # Check that RF/ADC (TX/RX) only have one frequency offset -- can't be set within one file.
@@ -439,14 +441,14 @@ class PSAssembler:
             # Remove time when all are off
             grad_delays = [grad['delay'] for grad in grads]
             min_delay = min(grad_delays)
-            grad_delay_lens = [int((delay - min_delay) / self._ps_grad_t) if delay != np.inf else 0 for delay in grad_delays]
+            grad_delay_lens = [int((delay - min_delay) / self._ps_grad_t + ROUNDING) if delay != np.inf else 0 for delay in grad_delays]
 
             # Array lengths (unitless)
             grad_ps_len = max([len(grad_shapes[i]) + grad_delay_lens[i] for i in range(3)]) + self._grad_pad
             if self._fix_grad_len:
-                grad_len = int((grad_ps_len - self._grad_pad) * self._ps_grad_t / self._grad_t)
+                grad_len = int((grad_ps_len - self._grad_pad) * self._ps_grad_t / self._grad_t + ROUNDING)
             else:
-                grad_len = int(grad_ps_len * self._ps_grad_t / self._grad_t)
+                grad_len = int(grad_ps_len * self._ps_grad_t / self._grad_t + ROUNDING)
 
             # Leading edge time arrays for interpolation
             x_ps = np.linspace(0, (grad_ps_len - 1) * self._ps_grad_t, num=grad_ps_len)
@@ -507,9 +509,9 @@ class PSAssembler:
         # Create and append new trap shapes, and convert trap into standard grad events
         for grad_id, grad in self._grad_events.items():
             if len(grad) == 5:
-                rise = np.flip(np.linspace(1, 0, num=int(grad['rise'] / self._ps_grad_t), endpoint=False))
-                flat = np.ones(int(grad['flat'] / self._ps_grad_t))
-                fall = np.flip(np.linspace(0, 1, num=int(grad['fall'] / self._ps_grad_t), endpoint=False))
+                rise = np.flip(np.linspace(1, 0, num=int(grad['rise'] / self._ps_grad_t + ROUNDING), endpoint=False))
+                flat = np.ones(int(grad['flat'] / self._ps_grad_t) + ROUNDING)
+                fall = np.flip(np.linspace(0, 1, num=int(grad['fall'] / self._ps_grad_t + ROUNDING), endpoint=False))
                 shape = np.concatenate((rise, flat, fall))
                 
                 max_id += 1
@@ -535,7 +537,7 @@ class PSAssembler:
             self._reg_nums[gate] = rn
             rn += 1
         PR_registers = [self._reg_nums[gate] for gate in PR_gates]
-        PR_clk_delays = [int(duration / self._clk_t) for duration in PR_durations]
+        PR_clk_delays = [int(duration / self._clk_t + ROUNDING) for duration in PR_durations]
         
 
         # Fill out command lines
