@@ -431,7 +431,7 @@ class PSAssembler:
             self._tx_offsets[tx_id] = curr_offset
             self._tx_durations[tx_id] = pulse_len * self._tx_t
             self._tx_delays[tx_id] = tx['delay']
-            curr_offset += pulse_len * self._offset_step
+            curr_offset += pulse_len
 
         # Compile as bytes (16 bits for real and imaginary)
         self._logger.info('Converting to bytes...')
