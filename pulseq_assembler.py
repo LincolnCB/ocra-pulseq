@@ -10,7 +10,7 @@ import numpy as np
 import logging # For errors
 import struct
 
-ROUNDING = 1e-3
+ROUNDING = 0
 
 class PSAssembler:
     """
