@@ -26,10 +26,9 @@ class PSAssembler:
     def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+6,
                  clk_t=7e-3, tx_t=1.001, grad_t=10.003,
                  pulseq_t_match=False, ps_tx_t=1, ps_grad_t=10,
-                 tx_warmup=0, grad_pad=0, adc_pad=0, addresses_per_grad_sample=1,
-                 rf_delay_preload=False, 
-                 rf_pad_type='ext', grad_pad_type='ext',
-                 fix_grad_length=True):
+                 rf_delay_preload=False, addresses_per_grad_sample=1,
+                 tx_warmup=0, grad_pad=0, adc_pad=0,
+                 rf_pad_type='ext', grad_pad_type='ext'):
         """
         Create PSAssembler object with system parameters.
 
@@ -43,12 +42,12 @@ class PSAssembler:
             pulseq_t_match (bool): Default False -- If PulSeq file transmit and gradient raster times match OCRA transmit and raster times.
             ps_tx_t (float): Default 1 -- PulSeq transmit raster period in us. Used only if pulseq_t_match is False.
             ps_grad_t (float): Default 10 -- PulSeq gradient raster period in us. Used only if pulseq_t_match is False.
-            tx_warmup (float): Default 0 -- Padding delay at the beginning of RF to give TR warmup in us. PADDING WILL CHANGE TIMING.
-            grad_pad (int): Default 0 -- Padding zero samples at the end of gradients to prevent maintained gradient levels. PADDING WILL CHANGE TIMING.
-            adc_pad (int): Default 0 -- Padding samples in ADC to account for junk in system buffer. PADDING WILL CHANGE TIMING.
-            addresses_per_grad_sample (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards.
             rf_delay_preload (bool): Default False -- If True, turn on TX_GATE whenever a block contains RF
-            fix_grad_length (bool): Default True -- If True, fix the length of the gradient and distort when padded instead of extending.
+            addresses_per_grad_sample (int): Default 1 -- Memory offset step per gradient readout, to account for different DAC boards.
+            tx_warmup (float): Default 0 -- Padding delay at the beginning of RF to give TR warmup in us. PADDING WILL CHANGE TIMING.
+            grad_pad (int): Default 0 -- Padding zero samples at the end of gradients to prevent maintained gradient levels.
+            adc_pad (int): Default 0 -- Padding samples in ADC to account for junk in system buffer. PADDING WILL CHANGE TIMING.
+            
         """
         # Logging
         self._logger = logging.getLogger()
@@ -110,7 +109,6 @@ class PSAssembler:
         self._grad_pad = grad_pad
         self._offset_step = addresses_per_grad_sample
         self._rf_preload = rf_delay_preload
-        self._fix_grad_len = fix_grad_length
 
         self._tx_offsets = {} # Tx word index (32-bit) by Tx ID
         self._tx_delays = {} # us
@@ -285,7 +283,7 @@ class PSAssembler:
                         output_array[i+1, idx:next_idx] = output_array[i+1, idx-1]
                     else:
                         grad = self.grad_arr[i][grad_idx:grad_idx + grad_steps]
-                        output_array[i+1, idx:next_idx] = np.interp(x2, x1, grad)
+                        output_array[i+1, idx:next_idx] = np.interp(x2, x1, grad) # TODO ISSUE
                 grad_idx += grad_steps
 
             # Sequence ADC
@@ -413,8 +411,10 @@ class PSAssembler:
             
             # Interpolate values (and extend past end of shorter, if needed)
             x = np.linspace(0, (pulse_len - 1) * self._tx_t, num=pulse_len) # us
-            mag_interp = np.interp(x, np.linspace(0, (len(mag_shape) - 1) * self._ps_tx_t, num=len(mag_shape)), mag_shape) * tx['amp'] / self._rf_amp_max
-            phase_interp = np.interp(x, np.linspace(0, (len(phase_shape) - 1) * self._ps_tx_t, num=len(phase_shape)), phase_shape) * 2 * np.pi
+            mag_x_ps = np.linspace(0, (len(mag_shape) - 1) * self._ps_tx_t, num=len(mag_shape))
+            phase_x_ps = np.linspace(0, (len(phase_shape) - 1) * self._ps_tx_t, num=len(phase_shape))
+            mag_interp = np.interp(x, mag_x_ps, mag_shape) * tx['amp'] / self._rf_amp_max
+            phase_interp = np.interp(x, phase_x_ps, phase_shape) * 2 * np.pi
 
             # Add tx warmup padding
             pulse_len += self._tx_warmup_samples
@@ -482,19 +482,17 @@ class PSAssembler:
 
             # Array lengths (unitless)
             grad_ps_len = max([len(grad_shapes[i]) + grad_delay_lens[i] for i in range(3)]) + self._grad_pad
-            if self._fix_grad_len:
-                grad_len = int((grad_ps_len - self._grad_pad) * self._ps_grad_t / self._grad_t + ROUNDING)
-            else:
-                grad_len = int(grad_ps_len * self._ps_grad_t / self._grad_t + ROUNDING)
+            grad_len = int(grad_ps_len * self._ps_grad_t / self._grad_t + ROUNDING)
 
-            # Leading edge time arrays for interpolation
-            x_ps = np.linspace(0, (grad_ps_len - 1) * self._ps_grad_t, num=grad_ps_len)
-            x = np.linspace(0, (grad_len - 1) * self._ps_grad_t, num=grad_len)
+            # Falling edge time arrays for interpolation
+            duration = grad_ps_len * self._ps_grad_t
+            x_ps = np.flip(np.linspace(duration + self._ps_grad_t, 0, num=grad_ps_len + 2)) # Add a zero on either end
+            x = np.flip(np.linspace(duration, 0, num=grad_len, endpoint=False))
             
             # Interpolate, scale, and concatenate grad data
             for i in range(3): 
-                grad_ps = np.zeros(grad_ps_len)
-                grad_ps[grad_delay_lens[i] : grad_delay_lens[i] + len(grad_shapes[i])] = np.array(grad_shapes[i])
+                grad_ps = np.zeros(grad_ps_len + 2) 
+                grad_ps[grad_delay_lens[i] + 1 : grad_delay_lens[i] + len(grad_shapes[i])] = np.array(grad_shapes[i])
                 gr = np.interp(x, x_ps, grads[i]['amp'] * grad_ps) / self._grad_max
 
                 grad_data[i].extend(gr.tolist())
