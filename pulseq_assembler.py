@@ -1142,6 +1142,14 @@ if __name__ == '__main__':
     ps = PSAssembler()
     inp_file = 'test_files/test00.seq'
     tx_bytes, grad_bytes_list, command_bytes, params = ps.assemble(inp_file)
+
+    x, data = ps.sequence()
+    import matplotlib.pyplot as plt
+    fig, axs = plt.subplots(5, 1, sharex=True)
+    for i in range(5):
+        axs[i].plot(x, data[i, :])
+    plt.show()
+
     grad_x_bytes, grad_y_bytes, grad_z_bytes = grad_bytes_list
     print("Completed successfully")
             
