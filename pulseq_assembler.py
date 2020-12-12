@@ -250,7 +250,7 @@ class PSAssembler:
             if TX_offsets[n] != -1:
                 tx_idx = TX_offsets[n]
             if GRAD_offsets[n] != -1:
-                grad_idx = GRAD_offsets[n]
+                grad_idx = int(GRAD_offsets[n] / self._offset_step)
             
             gate = PR_gates[n]
 
