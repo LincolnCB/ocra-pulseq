@@ -64,7 +64,7 @@ class PSAssembler:
         # Interpreter for section names in .seq file
         self._pulseq_keys = {
             '[VERSION]' : self._read_temp, # Unused
-            '[DEFINITIONS]' : self._read_temp, # Unused
+            '[DEFINITIONS]' : self._read_defs,
             '[BLOCKS]' : self._read_blocks,
             '[RF]' : self._read_rf_events,
             '[GRADIENTS]' : self._read_grad_events,
@@ -123,6 +123,7 @@ class PSAssembler:
         self.tx_bytes = bytes()
         self.grad_bytes = [bytes(), bytes(), bytes()] # x, y, z
         self.command_bytes = bytes()
+        self.definitions = {}
         self.readout_number = 0
         self.is_assembled = False
 
@@ -409,10 +410,10 @@ class PSAssembler:
             # Array length, unitless -- extends shorter of phase/mag shape to length of longer                     
             pulse_len = int((max(len(mag_shape), len(phase_shape)) - 1) * self._ps_tx_t / self._tx_t) + 1 # unitless
             
-            # Interpolate values (and extend past end of shorter, if needed)
-            x = np.linspace(0, (pulse_len - 1) * self._tx_t, num=pulse_len) # us
-            mag_x_ps = np.linspace(0, (len(mag_shape) - 1) * self._ps_tx_t, num=len(mag_shape))
-            phase_x_ps = np.linspace(0, (len(phase_shape) - 1) * self._ps_tx_t, num=len(phase_shape))
+            # Interpolate values on falling edge (and extend past end of shorter, if needed)
+            x = np.flip(np.linspace(pulse_len * self._tx_t, 0, num=pulse_len, endpoint=False)) # us
+            mag_x_ps = np.flip(np.linspace(len(mag_shape)* self._ps_tx_t, 0, num=len(mag_shape), endpoint=False))
+            phase_x_ps = np.flip(np.linspace(len(phase_shape)* self._ps_tx_t, 0, num=len(phase_shape), endpoint=False))
             mag_interp = np.interp(x, mag_x_ps, mag_shape) * tx['amp'] / self._rf_amp_max
             phase_interp = np.interp(x, phase_x_ps, phase_shape) * 2 * np.pi
 
@@ -490,9 +491,9 @@ class PSAssembler:
             x = np.flip(np.linspace(duration, 0, num=grad_len, endpoint=False))
             
             # Interpolate, scale, and concatenate grad data
-            for i in range(3): 
-                grad_ps = np.zeros(grad_ps_len + 2) 
-                grad_ps[grad_delay_lens[i] + 1 : grad_delay_lens[i] + len(grad_shapes[i])] = np.array(grad_shapes[i])
+            for i in range(3):
+                grad_ps = np.zeros(grad_ps_len + 2)
+                grad_ps[grad_delay_lens[i] + 1 : grad_delay_lens[i] + len(grad_shapes[i]) + 1] = np.array(grad_shapes[i])
                 gr = np.interp(x, x_ps, grads[i]['amp'] * grad_ps) / self._grad_max
 
                 grad_data[i].extend(gr.tolist())
@@ -1032,6 +1033,39 @@ class PSAssembler:
 
         return rline
 
+    # [DEFINITIONS] <varname> <value>
+    def _read_defs(self, f):
+        """
+        Read through DEFINITIONS section in PulSeq file f.
+
+        Args:
+            f (_io.TextIOWrapper): File pointer to read from
+
+        Returns:
+            str: Raw next line in file after section ends
+        """
+        rline = ''
+        line = ''
+        self._logger.info('DEFINITIONS: Reading...')
+        while True:
+            line = f.readline()
+            rline = self._simplify(line)
+            if line == '' or rline in self._pulseq_keys: break
+
+            tmp = rline.split()
+            if len(tmp) == 2:
+                varname, value = rline.split()
+                try:
+                    value = float(value)
+                except:
+                    pass
+                self.definitions[varname] = value
+                self._logger.debug(f'Read in {varname}')
+
+        self._logger.info('(Unused): Complete')
+
+        return rline
+
     # Unused headers
     def _read_temp(self, f):
         """
@@ -1106,7 +1140,7 @@ class PSAssembler:
 # Sample usage
 if __name__ == '__main__':
     ps = PSAssembler()
-    inp_file = 'test_files/test_loopback.seq'
+    inp_file = 'test_files/test00.seq'
     tx_bytes, grad_bytes_list, command_bytes, params = ps.assemble(inp_file)
     grad_x_bytes, grad_y_bytes, grad_z_bytes = grad_bytes_list
     print("Completed successfully")
