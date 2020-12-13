@@ -116,6 +116,7 @@ class PSAssembler:
         self._grad_offsets = {} # Gradient word index (3 concurrent 32-bit) by Gx, Gy, Gz ID combo
         self._grad_delays = {} # us
         self._grad_durations = {} # us
+        self._definitions = {}
 
         self.tx_arr = np.zeros(0, dtype=np.complex64)
         self.grad_arr = [np.zeros(0), np.zeros(0), np.zeros(0)] # x, y, z
@@ -123,7 +124,6 @@ class PSAssembler:
         self.tx_bytes = bytes()
         self.grad_bytes = [bytes(), bytes(), bytes()] # x, y, z
         self.command_bytes = bytes()
-        self.definitions = {}
         self.readout_number = 0
         self.is_assembled = False
 
@@ -173,6 +173,8 @@ class PSAssembler:
         self._compile_instructions()
         self.is_assembled = True
         output_dict = {'readout_number' : self.readout_number, 'tx_t' : self._tx_t, 'rx_t' : self._rx_t}
+        for key, value in self._definitions.items():
+            output_dict[key] = value
         if byte_format:
             return (self.tx_bytes, self.grad_bytes, self.command_bytes, output_dict)
         else:
@@ -1059,7 +1061,7 @@ class PSAssembler:
                     value = float(value)
                 except:
                     pass
-                self.definitions[varname] = value
+                self._definitions[varname] = value
                 self._logger.debug(f'Read in {varname}')
 
         self._logger.info('(Unused): Complete')
