@@ -140,6 +140,7 @@ class PSAssembler:
 			'GRADOFFSET' :  '001001', # B
             'LITR' :        '000011', # B
             'RASTCSYNC' :   '000101', # C
+            'RST' :         '011011', # A
 		}
         self._gate_bits = {
             'TX_PULSE':   int('0b00000001', 2),
@@ -587,6 +588,9 @@ class PSAssembler:
         # Fill out lines 1 and 2 for consistency
         cmds.append(format(0, 'b').zfill(64)) # 1
         cmds.append(format(1, 'b').zfill(64)) # 2 (Loop counter)
+
+        # HF-Reset and reset internal sequencer counter
+        cmds.append(self._format_A('RST', 0, 0))
 
         # Enter gate variables for loading
         for gate in gates:
