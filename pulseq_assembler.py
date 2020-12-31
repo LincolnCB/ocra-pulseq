@@ -910,7 +910,7 @@ class PSAssembler:
         var_names = ('amp', 'rise', 'flat', 'fall', 'delay')
         rline = ''
         line = ''
-        self._logger.info('Trap: Reading...')
+        self._logger.info('Trapezoids: Reading...')
         while True:
             line = f.readline()
             rline = self._simplify(line)
@@ -927,7 +927,7 @@ class PSAssembler:
                 self._warning_if(data_line[0] in self._grad_events, f'Repeat gradient ID {data_line[0]} in TRAP, overwriting')
                 self._grad_events[data_line[0]] = {var_names[i] : data_line[i+1] for i in range(len(var_names))}
 
-        self._logger.info('Trap: Complete')
+        self._logger.info('Trapezoids: Complete')
 
         return rline
 
@@ -1058,7 +1058,7 @@ class PSAssembler:
         """
         rline = ''
         line = ''
-        self._logger.info('DEFINITIONS: Reading...')
+        self._logger.info('Definitions: Reading...')
         while True:
             line = f.readline()
             rline = self._simplify(line)
@@ -1074,7 +1074,7 @@ class PSAssembler:
                 self._definitions[varname] = value
                 self._logger.debug(f'Read in {varname}')
 
-        self._logger.info('(Unused): Complete')
+        self._logger.info('Definitions: Complete')
 
         return rline
 
