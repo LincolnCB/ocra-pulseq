@@ -23,7 +23,7 @@ class PSAssembler:
         readout_number (int): Expected number of readouts
     """
 
-    def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+6,
+    def __init__(self, rf_center=3e+6, rf_amp_max=5e+3, grad_max=1e+7,
                  clk_t=7e-3, tx_t=1.001, grad_t=10.003,
                  pulseq_t_match=False, ps_tx_t=1, ps_grad_t=10,
                  rf_delay_preload=False, addresses_per_grad_sample=1,
@@ -192,7 +192,8 @@ class PSAssembler:
             interp (bool): Default False -- If True, interpolate between TX/Grad sample points
 
         Returns:
-            list: 1D time array for x-axis (numpy.ndarray); 2D output arrays, where axis 0 gives RF, GX, GY, GZ, ADC (numpy.ndarray)
+            list: 1D time array for x-axis (numpy.ndarray); 2D output arrays, where axis 0 (length 6)
+                gives RF, GX, GY, GZ, ADC, TX_GATE (numpy.ndarray)
         """
 
         # Parse all blocks
@@ -222,7 +223,7 @@ class PSAssembler:
         
         # Create arrays
         time_axis = np.linspace(start, end, num=count)
-        output_array = np.zeros((5, count), dtype=np.complex64)
+        output_array = np.zeros((6, count), dtype=np.complex64)
 
         # Loop through gate states
         pulse_start = 0
@@ -286,12 +287,16 @@ class PSAssembler:
                         output_array[i+1, idx:next_idx] = output_array[i+1, idx-1]
                     else:
                         grad = self.grad_arr[i][grad_idx:grad_idx + grad_steps]
-                        output_array[i+1, idx:next_idx] = np.interp(x2, x1, grad) # TODO ISSUE
+                        output_array[i+1, idx:next_idx] = np.interp(x2, x1, grad)
                 grad_idx += grad_steps
 
             # Sequence ADC
             if not (gate & self._gate_bits['RX_PULSE']):
                 output_array[4, idx:next_idx] = 1
+
+            # Sequence TX gate
+            if (gate & self._gate_bits['TX_GATE']):
+                output_array[5, idx:next_idx] = 1
 
             if pulse_end == end:
                 break
@@ -1142,15 +1147,21 @@ class PSAssembler:
 # Sample usage
 if __name__ == '__main__':
     ps = PSAssembler()
-    inp_file = 'test_files/test00.seq'
+    inp_file = 'test_files/tabletop_se_2d_pulseq.seq'
     tx_bytes, grad_bytes_list, command_bytes, params = ps.assemble(inp_file)
 
     x, data = ps.sequence()
     import matplotlib.pyplot as plt
     fig, axs = plt.subplots(5, 1, sharex=True)
-    for i in range(5):
-        axs[i].plot(x, data[i, :])
+    axs[0].plot(x, np.abs(data[0, :]))
+    for i in range(1, 5):
+        axs[i].plot(x, np.real(data[i, :]))
     plt.show()
+    plt.close()
+
+    fig, axs = plt.subplots(5, 1, sharex=True)
+    axs[1].plot(x, np.real(data[1, :]))
+
 
     grad_x_bytes, grad_y_bytes, grad_z_bytes = grad_bytes_list
     print("Completed successfully")
