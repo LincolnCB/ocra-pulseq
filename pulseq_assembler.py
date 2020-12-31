@@ -140,10 +140,11 @@ class PSAssembler:
 			'GRADOFFSET' :  '001001', # B
             'LITR' :        '000011', # B
             'RASTCSYNC' :   '000101', # C
+            'RST' :         '011011', # A
 		}
         self._gate_bits = {
             'TX_PULSE':   int('0b00000001', 2),
-            'RX_PULSE':   int('0b00000010', 2), # NOTE: Inverted logic
+            'RX_PULSE':   int('0b00000010', 2),
             'GRAD_PULSE': int('0b00000100', 2),
 			'TX_GATE':    int('0b00010000', 2),
 			'RX_GATE':    int('0b00100000', 2)
@@ -291,7 +292,7 @@ class PSAssembler:
                 grad_idx += grad_steps
 
             # Sequence ADC
-            if not (gate & self._gate_bits['RX_PULSE']):
+            if gate & self._gate_bits['RX_PULSE']:
                 output_array[4, idx:next_idx] = 1
 
             # Sequence TX gate
@@ -602,11 +603,15 @@ class PSAssembler:
             cmds.append(self._format_A('LD64', rn, rn))
         self._logger.info('Gate variables stored')
 
+        # HF-Reset and reset internal sequencer counter
+        cmds.append(self._format_A('RST', 0, 0))
+
         # Write instructions
         for i in range(len(PR_clk_delays)):
             if TX_offsets[i] != -1: cmds.append(self._format_B('TXOFFSET', 0, TX_offsets[i]))
             if GRAD_offsets[i] != -1: cmds.append(self._format_B('GRADOFFSET', 0, GRAD_offsets[i]))
             cmds.append(self._format_B('PR', PR_registers[i], PR_clk_delays[i]))
+ 
 
         # Halt
         cmds.append(self._format_A('HALT', 0, 0))
@@ -647,7 +652,7 @@ class PSAssembler:
 
         # Zero gates at the end
         PR_durations.append(1)
-        PR_gates.append(np.zeros(1, dtype=np.uint8)[0] | self._gate_bits['RX_PULSE'])
+        PR_gates.append(np.zeros(1, dtype=np.uint8)[0])
         TX_offsets.append(-1)
         GRAD_offsets.append(-1)
 
@@ -706,7 +711,7 @@ class PSAssembler:
                 gates[i] = gates[i] | self._gate_bits['TX_GATE'] | self._gate_bits['TX_PULSE']
             if time >= grad_start and time < grad_end:
                 gates[i] = gates[i] | self._gate_bits['GRAD_PULSE']
-            if time < rx_start or time >= rx_end:
+            if time >= rx_start and time < rx_end:
                 gates[i] = gates[i] | self._gate_bits['RX_PULSE']
 
         # Set offsets for each time (leading edge)
